@@ -330,6 +330,115 @@ Danach `hyprctl reload`, oder `Ctrl+Super+R` startet die Shell neu.
 
 ---
 
+## Nach dem ersten echten Rebase (2026-09-08)
+
+Der erste Login ging schief: Hyprland kam ohne Keybinds, ohne Shell und mit
+englischem Tastaturlayout hoch. Drei Fehler wirkten zusammen — alle drei sind
+behoben, hier zum Nachvollziehen.
+
+### 1. Race zwischen den beiden Seeding-Ausloesern
+
+`bazz-hypr-seed` hat zwei Ausloeser: den Session-Wrapper (synchron vor
+Hyprland) und `bazz-hypr-firstrun.service` (User-Dienst beim Login). Beide
+starteten in derselben Sekunde. Der zweite Lauf loeschte mit
+`rm -rf "$VENV.tmp"` das Staging-Verzeichnis des ersten mitten im Kopieren des
+330-MB-venv; der erste brach daraufhin per `set -e` ab — **bevor** er die
+Konfiguration schreiben konnte.
+
+Sichtbar war das am venv: 329 MB im Image, 120 MB im HOME, `bin/` fehlte ganz.
+
+Behoben mit `flock`. Zusaetzlich wird die Konfiguration jetzt **vor** dem venv
+geschrieben, weil Hyprland direkt danach startet und das venv-Kopieren lange
+dauert.
+
+### 2. Hyprland generierte sich eine eigene Config
+
+Weil das Seeding abgebrochen war, existierte `~/.config/hypr/hyprland.lua`
+beim Start noch nicht. Im Log stand woertlich:
+
+```
+[cfg] Regular config at /home/timta/.config/hypr/hyprland.lua
+WARN ]: No config file found; attempting to generate.
+```
+
+Hyprland schrieb sich eine Default-Konfiguration an genau diese Stelle — und
+weil die Datei nur bei Abwesenheit geseedet wurde, waere sie **dauerhaft**
+liegen geblieben. Jeder weitere Login haette denselben nackten Desktop
+ergeben. Zum Vergleich: die generierte Datei war 12726 Byte gross, die
+Upstream-Datei ist 1204 Byte.
+
+`hyprland.lua` gilt jetzt als Upstream-Datei und wird immer abgeglichen; eine
+abweichende Fassung landet als `hyprland.lua.bak` daneben. Zusaetzlich prueft
+der Session-Wrapper direkt vor dem Start, ob die Datei da ist.
+
+### 3. write_once schrieb nie etwas
+
+Die Leer-Pruefung war `[ -s "$path" ]`. Die `custom/*.lua`-Vorlagen des
+Upstream sind aber **nicht 0 Byte gross, sondern 1 Byte** — ein einzelnes
+Newline. `-s` hielt sie damit fuer befuellt und uebersprang jede einzelne
+unserer Einstellungen: keine Nvidia-Variablen, kein `qsConfig = end4-pC`, kein
+polkit-Agent, kein Tastaturlayout.
+
+Das war die eigentliche Ursache fuer "Hyprland ohne Settings". Geprueft wird
+jetzt auf "enthaelt nur Leerraum".
+
+### Tastaturlayout
+
+illogical-impulse setzt in `hyprland/general.lua` fest `kb_layout = "us"`.
+`custom/general.lua` wird danach geladen und ueberschreibt das; die Werte
+kommen jetzt aus `localectl` statt fest verdrahtet zu sein.
+
+Wichtig: Layout und Variante muessen **zusammen** gesetzt werden. Ein
+Zwischenzustand mit `us` + `nodeadkeys` ist ungueltig — `us` kennt diese
+Variante nicht — und Hyprland blendet dafuer eine rote Fehlermeldung ein.
+
+### Lua-Modulcache
+
+`hyprctl reload` laedt geaenderte `custom/*.lua` **nicht** neu: Lua cacht
+Module in `package.loaded`, und was beim Sessionstart als leere Datei geladen
+wurde, bleibt leer. Zum Testen hilft
+
+```
+hyprctl eval 'package.loaded["custom.general"]=nil; require("custom.general")'
+```
+
+verlaesslich ist aber nur ein echter Neustart der Session. Auch `hyprctl
+keyword` funktioniert mit dem Lua-Parser nicht mehr — es meldet
+*"keyword can't work with non-legacy parsers. Use eval."*
+
+### Quickshell 0.3.1 laeuft
+
+Die offene Frage aus der Recherche ist beantwortet: **beide Konfigurationen
+starten und rendern.** `qs -c ii` zeigt nur First-Run-Meldungen (config.json,
+colors.json, first_run.txt fehlen noch). `qs -c end4-pC` laeuft ebenfalls, hat
+aber zwei Warnungen mehr:
+
+* `Cannot assign to read-only property "mirrored"` — in Qt 6.11 ist diese
+  Eigenschaft read-only geworden, end4-pC schreibt noch darauf.
+* `filterDuplicatePlayers is not defined` — eine Funktion, die es in dieser
+  Quickshell-Version nicht mehr gibt.
+
+Beides ist nicht fatal, kann aber einzelne Bar-Elemente betreffen. Wer es
+sauberer mag, stellt in `custom/variables.lua` auf `"ii"` um.
+
+### Schluesselbund: kwallet gegen gnome-keyring
+
+Unter Plasma lagen die Passwoerter in **kwallet**
+(`~/.local/share/kwalletd/kdewallet.kwl`). illogical-impulse startet in
+`hyprland/execs.lua` stattdessen **gnome-keyring**, das beim ersten Login einen
+frischen, leeren Schluesselbund anlegt. Beide Tresore existieren danach
+nebeneinander, und was in kwallet lag, ist unter Hyprland nicht sichtbar — im
+Test war dadurch das gespeicherte GitHub-Token weg.
+
+Dazu kommt: `/etc/pam.d/kde` laedt **kein** `pam_gnome_keyring`. Der
+Schluesselbund wird also nicht beim Login mit dem Benutzerpasswort entsperrt,
+sondern erst spaeter von der Hyprland-Konfiguration gestartet.
+
+**Offen und bewusst nicht angefasst:** PAM so zu erweitern, dass
+gnome-keyring beim Login entsperrt wird. Ein Fehler in einer PAM-Datei kann den
+Login komplett blockieren — das gehoert nicht ungefragt in ein Image, das auf
+einer Daily-Driver-Maschine landet.
+
 ## Offene Punkte vor dem Rebase
 
 * **Session-Auswahl ist manuell.** SDDM merkt sich die zuletzt benutzte Session

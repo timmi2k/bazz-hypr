@@ -110,6 +110,18 @@ GitHub so einen Push von vornherein ab.
 
 Erfolgreicher Build: Run `34246345464`, 7m29s.
 Image: `ghcr.io/timmi2k/bazz-hypr:latest`
+
+**Ergebnis:** Der Rebase lief durch, der erste Login aber nicht — Hyprland kam
+ohne Konfiguration hoch. Drei Fehler wirkten zusammen (Race beim Seeding,
+selbstgenerierte Hyprland-Config, kaputte Leer-Pruefung in `write_once`).
+Ausfuehrlich im `README.md`, Abschnitt *"Nach dem ersten echten Rebase"*.
+Alle drei sind in Commit `d74680d` behoben.
+
+Das laufende System wurde von Hand nachgezogen: venv neu kopiert,
+`hyprland.lua` durch die Upstream-Fassung ersetzt, `custom/*.lua` befuellt,
+Tastatur auf `de`/`nodeadkeys`, Shell und Autostart-Dienste gestartet.
+Ein Rollback war nicht noetig.
+
 (Digest `sha256:0e9cf9ed1c41d552d33fa63a1d82f0b4814de09ab30b954ce887298d678ba76f`,
 Tags `latest`, `20260908`, `44`, `20260908-44` — cosign-Signaturen liegen daneben.)
 
@@ -173,7 +185,7 @@ ist **kein** konservativerer Schritt, sondern der groessere Sprung.
 | Abbruch in `install-dots.sh` mit "Struktur hat sich geaendert" | Upstream hat Dateien verschoben. SHA pruefen, Pfade anpassen. |
 | `build-venv.sh` scheitert beim Kompilieren | ein `-devel`-Paket fehlt; der fehlende Header steht im Log. |
 
-## Phase 5 — VM-Boot-Test ⚠️ uebersprungen
+## Phase 5 — VM-Boot-Test ⚠️ uebersprungen (durch den echten Rebase ersetzt)
 
 Auf der Maschine sind weder `qemu-system-x86_64` noch `libvirt`/`virsh`
 installiert, und es sollte ausdruecklich nichts nachinstalliert werden.
@@ -186,7 +198,7 @@ Maschine pruefen.
 
 ---
 
-## Phase 6 — Rebase 🔒 macht der Benutzer selbst
+## Phase 6 — Rebase ✅ durchgefuehrt (2026-09-08)
 
 Image: `ghcr.io/timmi2k/bazz-hypr:latest`
 
@@ -279,3 +291,38 @@ for v in $VOLS; do podman volume create "$v"; done
 ```
 
 Der Befehl wurde bewusst nicht automatisch ausgefuehrt.
+
+---
+
+## Phase 7 — Nacharbeiten ⏳ offen
+
+1. **Neues Image beziehen.** Commit `d74680d` behebt die drei Login-Fehler.
+   Nach gruenem Build:
+   ```
+   rpm-ostree upgrade
+   systemctl reboot
+   ```
+   Danach einmal ab- und wieder anmelden, damit das reparierte Seeding
+   durchlaeuft. Die von Hand gesetzten Dateien bleiben erhalten - das Skript
+   ueberschreibt nur, was dem Upstream gehoert.
+
+2. **Auf die signaturgepruefte Referenz umstellen** (steht noch aus, das
+   System laeuft aktuell auf `ostree-unverified-registry:`):
+   ```
+   rpm-ostree rebase ostree-image-signed:docker://ghcr.io/timmi2k/bazz-hypr:latest
+   systemctl reboot
+   ```
+
+3. **Schluesselbund entscheiden.** Die alten Passwoerter liegen in kwallet und
+   sind unter Hyprland nicht sichtbar. Entweder aus kwallet exportieren, oder
+   `pam_gnome_keyring` in die Login-PAM-Kette aufnehmen, damit gnome-keyring
+   beim Login mit dem Benutzerpasswort entsperrt wird. Letzteres ist nicht
+   ohne Risiko - ein Fehler in einer PAM-Datei kann den Login blockieren.
+
+4. **Wi-Fi-Panel-Fix** aus dem dist-fedora-README, sobald
+   `~/.config/illogical-impulse/config.json` beim ersten Shell-Start entstanden
+   ist:
+   `"network": "kitty -1 fish -c nmtui"` → `"network": "plasmawindowed org.kde.plasma.networkmanagement"`
+
+5. **Optional:** `custom/variables.lua` auf `"ii"` statt `"end4-pC"`, falls die
+   beiden Qt-6.11-Warnungen von end4-pC sichtbar stoeren.
