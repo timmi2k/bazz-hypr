@@ -1,0 +1,227 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/recipe-v1.json
+version: 1
+name: bazz-hypr
+description: Bazzite (Nvidia, open kernel modules) mit Hyprland + illogical-impulse (Quickshell) als Standard-Session, end4-pC als zusaetzliche Shell. KDE Plasma bleibt als Fallback-Session und als Lieferant der von illogical-impulse benoetigten KDE-Dienste installiert.
+base-image: ghcr.io/ublue-os/bazzite-nvidia-open
+image-version: stable
+
+modules:
+  # ---------------------------------------------------------------------------
+  # 1. Pakete
+  # ---------------------------------------------------------------------------
+  # Quelle der Paketliste: end-4/dots-hyprland -> sdata/dist-fedora/feddeps.toml
+  # (die offizielle, auf Fedora 44 getestete Liste des Upstream-Projekts).
+  #
+  # Bewusst NICHT uebernommen aus feddeps.toml:
+  #   grub2-breeze-theme  - wuerde den Bootloader umthemen; auf einem atomaren
+  #                         System unnoetiges Risiko.
+  #   sddm-breeze         - wuerde den Login-Manager umthemen; Bazzite bringt
+  #                         eigenes SDDM-Theming mit.
+  # Abweichung von feddeps.toml bei quickshell: Upstream nimmt quickshell-git
+  # aus ririko66z/dots-hyprland. Dieser Build ist gegen Qt 6.10 gelinkt und auf
+  # Bazzite (Qt 6.11) nicht installierbar - der erste CI-Build ist daran
+  # gescheitert. Stattdessen errornointernet/quickshell, gegen Qt 6.11 gebaut.
+  # ---------------------------------------------------------------------------
+  - type: dnf
+    repos:
+      copr:
+        # Hyprland 0.56.x (Lua-Config). solopasha/hyprland ist tot: dort steht
+        # nur 0.49.0 und nur fuer Fedora 41. Upstream feddeps.toml verweist
+        # selbst auf diesen Fork.
+        - sdegler/hyprland
+        # Nur noch fuer die Qt-freien Pakete: microtex, breakpad, songrec,
+        # bibata-cursor-theme, breeze-plus-icon-theme und die Fonts.
+        #
+        # NICHT fuer quickshell-git und hyprland-qt-support: die Builds dort
+        # stammen vom 2025-12-18 und sind gegen Qt 6.10 gelinkt. Bazzite hat
+        # Qt 6.11 und sperrt das Downgrade, quickshell bindet Qt-Private-APIs
+        # versionsgenau. Der erste CI-Build ist genau daran gescheitert.
+        - ririko66z/dots-hyprland
+        # Liefert quickshell-git gegen Qt 6.11 gebaut und wird aktiv gepflegt
+        # (Build vom 2026-09-04 gegenueber 2025-12-18 bei ririko66z).
+        - errornointernet/quickshell
+        - deltacopy/darkly
+        # eza liegt inzwischen in Fedora 44 selbst - die von feddeps.toml
+        # genannte COPR alternateved/eza ist damit ueberfluessig.
+        - atim/starship
+    install:
+      # Einzelne Pakete koennen je nach Fedora-Release fehlen; der Build soll
+      # daran nicht scheitern. Was wirklich fehlt, steht danach im Build-Log.
+      skip-unavailable: true
+      packages:
+        # --- Audio ---
+        - cava
+        - pavucontrol
+        - wireplumber
+        - libdbusmenu-gtk3-devel
+        - playerctl
+        # --- Backlight / Sensoren ---
+        - geoclue2
+        - brightnessctl
+        - ddcutil
+        # --- Basis-Werkzeuge ---
+        - bc
+        - cliphist
+        - wget2
+        - ripgrep
+        - yq
+        # rsync braucht bazz-hypr-seed zur Laufzeit, git der Build-Schritt
+        # install-dots.sh. Beide sind in der Base sehr wahrscheinlich schon da -
+        # explizit gelistet, damit das nicht stillschweigend vorausgesetzt wird.
+        - rsync
+        - git
+        # --- Cursor / Fonts / Themes ---
+        - bibata-cursor-theme
+        - adw-gtk3-theme
+        - breeze-cursor-theme
+        - breeze-icon-theme
+        - breeze-icon-theme-fedora
+        - kf6-breeze-icons
+        - breeze-plus-icon-theme
+        - darkly
+        - eza
+        - fish
+        - kitty
+        - florian-karsten-space-grotesk-fonts
+        - starship
+        - jetbrains-mono-nerd-fonts
+        - google-material-symbols-vf-rounded-fonts
+        - material-icons-fonts
+        - readex-pro-fonts-all
+        - google-rubik-vf-fonts
+        - twitter-twemoji-fonts
+        - google-sans-flex-vf-fonts
+        # --- Hyprland ---
+        - hyprland
+        - hyprland-guiutils
+        - hyprsunset
+        - wl-clipboard
+        # Qt-Private-API-gebunden: explizit aus sdegler holen. ririko66z hat
+        # dasselbe Paket, aber gegen Qt 6.10 gebaut.
+        - repo: copr:copr.fedorainfracloud.org:sdegler:hyprland
+          packages:
+            - hyprland-qt-support
+        # --- KDE-Dienste, die illogical-impulse voraussetzt ---
+        # Fast alle sind in Bazzite Kinoite bereits vorhanden; hier explizit
+        # gelistet, damit das Image nicht kaputtgeht, falls die Base sie mal
+        # nicht mehr mitbringt. gnome-keyring fehlt in Bazzite tatsaechlich.
+        - bluedevil
+        - gnome-keyring
+        - plasma-nm
+        - polkit-kde
+        - dolphin
+        - plasma-systemsettings
+        - plasma-systemmonitor
+        - kdialog
+        # --- MicroTeX (LaTeX-Rendering in der Shell) ---
+        - microtex
+        # --- XDG-Portals ---
+        - xdg-desktop-portal
+        - xdg-desktop-portal-gtk
+        - xdg-desktop-portal-kde
+        - xdg-desktop-portal-hyprland
+        # --- Python-Toolchain fuer das venv ---
+        # Diese -devel-Pakete sind KEIN Build-Ueberbleibsel: pygobject, pycairo
+        # und dbus-python liefern keine Wheels und werden beim venv-Bau aus dem
+        # Quelltext kompiliert.
+        - uv
+        # Upstream nagelt Python 3.12 fest (Pillow baut auf neueren Versionen
+        # nicht, siehe python-pillow/Pillow#8089). Fedora 44 liefert 3.12.14 als
+        # eigenes Paket - damit haengt der venv-Bau nicht daran, ob uv sich
+        # selbst einen Interpreter herunterladen darf.
+        - python3.12
+        - python3.12-devel
+        - gcc
+        - clang
+        - pkgconf-pkg-config
+        - python3-devel
+        - glib2-devel
+        - cairo-devel
+        - cairo-gobject-devel
+        - dbus-devel
+        - gtk4-devel
+        - libadwaita-devel
+        - libsoup3-devel
+        - libportal-gtk4
+        - gobject-introspection-devel
+        # --- Quickshell-Laufzeit ---
+        - qt6-qtdeclarative
+        - qt6-qtbase
+        - jemalloc
+        - qt6-qtsvg
+        - pipewire-libs
+        - wayland-devel
+        - qt6-qtwayland
+        - qt5-qtwayland
+        - breakpad
+        - kf6-kirigami
+        - libunwind-devel
+        - qt6-qt5compat
+        - qt6-qtimageformats
+        - qt6-qtpositioning
+        - qt6-qtquicktimeline
+        - qt6-qtsensors
+        - qt6-qttools
+        - qt6-qttranslations
+        - qt6-qtvirtualkeyboard
+        - kf6-syntax-highlighting
+        # --- illogical-impulse-Kern ---
+        # quickshell bindet Qt-Private-APIs versionsgenau, deshalb hier die
+        # Repo festnageln statt dnf die Version waehlen zu lassen.
+        - repo: copr:copr.fedorainfracloud.org:errornointernet:quickshell
+          packages:
+            - quickshell-git
+        # matugen liegt in Fedora 44 selbst.
+        - matugen
+        # --- Screenshot / Screencapture ---
+        - hyprshot
+        - slurp
+        - swappy
+        - tesseract
+        - tesseract-langpack-eng
+        - wf-recorder
+        # --- Toolkit ---
+        - upower
+        - wtype
+        - ydotool
+        # --- Widgets / Hilfsprogramme ---
+        - fuzzel
+        - ImageMagick
+        - hypridle
+        - hyprlock
+        - hyprpicker
+        - songrec
+        - translate-shell
+        - qalculate
+        - wlogout
+        # --- Extra ---
+        - mpvpaper
+
+  # ---------------------------------------------------------------------------
+  # 2. Dotfiles + venv ins Image backen
+  # ---------------------------------------------------------------------------
+  - type: script
+    scripts:
+      - install-dots.sh
+      - build-venv.sh
+
+  # ---------------------------------------------------------------------------
+  # 3. Systemdateien (udev, modprobe, systemd-Units)
+  # ---------------------------------------------------------------------------
+  - type: files
+    files:
+      - source: system
+        destination: /
+
+  # ---------------------------------------------------------------------------
+  # 4. Dienste verdrahten
+  # ---------------------------------------------------------------------------
+  - type: script
+    scripts:
+      - enable-services.sh
+
+  # ---------------------------------------------------------------------------
+  # 5. Signatur
+  # ---------------------------------------------------------------------------
+  - type: signing

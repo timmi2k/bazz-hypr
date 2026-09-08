@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Session-Wrapper: erst Konfiguration sicherstellen, dann Hyprland starten.
+#
+# Der User-Dienst bazz-hypr-firstrun.service laeuft parallel zum Sitzungsstart.
+# Bei allerersten Login nach einem Rebase kann Hyprland ihn ueberholen und
+# ohne Konfiguration hochkommen. Dieser Wrapper macht das Seeding synchron
+# vorher - er ist idempotent und kostet danach nur Millisekunden.
+set -uo pipefail
+
+if [ -x /usr/libexec/bazz-hypr-seed ]; then
+    /usr/libexec/bazz-hypr-seed || echo "bazz-hypr-seed fehlgeschlagen, starte trotzdem" >&2
+fi
+
+# Der Binaername unterscheidet sich je nach Paketierung (Hyprland vs hyprland),
+# deshalb nicht fest verdrahten - ein falscher Pfad hiesse: Session startet gar
+# nicht und der Benutzer landet wortlos zurueck im Login-Manager.
+for bin in Hyprland hyprland; do
+    if command -v "$bin" >/dev/null 2>&1; then
+        exec "$(command -v "$bin")" "$@"
+    fi
+done
+
+echo "bazz-hypr-session: kein Hyprland-Binary gefunden" >&2
+exit 1

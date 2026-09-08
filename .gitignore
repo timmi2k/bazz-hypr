@@ -1,0 +1,5 @@
+# Cosign-Privatschluessel darf NIE ins Repo. Er gehoert ausschliesslich in das
+# GitHub-Secret SIGNING_SECRET. Nur cosign.pub wird eingecheckt.
+cosign.key
+cosign.private
+*.key

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Hyprland (illogical-impulse)
+Comment=Hyprland mit der Quickshell-Oberflaeche von end-4 / end4-pC
+Exec=/usr/libexec/bazz-hypr-session
+Type=Application
+DesktopNames=Hyprland
+Keywords=tiling;wayland;hyprland;quickshell;

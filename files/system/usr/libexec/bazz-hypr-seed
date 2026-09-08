@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# Legt illogical-impulse + end4-pC im HOME des aufrufenden Benutzers an.
+#
+# Warum ueberhaupt noetig: /etc/skel greift nur bei NEU angelegten Benutzern.
+# Dieses Image landet per `rpm-ostree rebase` auf einer Maschine, auf der der
+# Account laengst existiert - dort wuerde skel nie ausgewertet. Also muss das
+# Seeding zur Laufzeit passieren.
+#
+# Idempotent: laeuft bei jedem Login, macht aber nur etwas, wenn sich die
+# Image-Version geaendert hat oder Dateien fehlen.
+set -euo pipefail
+
+SHARE="/usr/share/bazz-hypr"
+DOTS="$SHARE/dots-hyprland/dots"
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}"
+DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}"
+STAMP="$STATE/bazz-hypr/seeded"
+
+log() { printf '[bazz-hypr-seed] %s\n' "$*"; }
+
+test -d "$DOTS" || { log "FEHLER: $DOTS fehlt - kaputtes Image?"; exit 1; }
+
+# Version = Commit der Dotfiles im Image. Aendert sie sich, wird neu gesynct.
+VERSION="$(cat "$SHARE/dots-version" 2>/dev/null || echo unknown)"
+
+mkdir -p "$CONF" "$DATA" "$STATE/bazz-hypr"
+
+# --- 1. Python-venv ---------------------------------------------------------
+# Wird im Image vorgebaut und hierher kopiert. Die Quickshell-Skripte erwarten
+# es unter genau diesem Pfad (hypr/hyprland/env.lua setzt
+# ILLOGICAL_IMPULSE_VIRTUAL_ENV=$HOME/.local/state/quickshell/.venv).
+# Kopie statt Symlink nach /usr, damit der Benutzer bei Bedarf selbst Pakete
+# nachinstallieren kann.
+VENV="$STATE/quickshell/.venv"
+if [ ! -x "$VENV/bin/python" ] && [ -d "$SHARE/venv" ]; then
+    log "kopiere Python-venv nach $VENV"
+    mkdir -p "$STATE/quickshell"
+    rm -rf "$VENV.tmp"
+    cp -a "$SHARE/venv" "$VENV.tmp"
+    mv "$VENV.tmp" "$VENV"
+fi
+
+# --- 2. Upstream-eigene Konfiguration ---------------------------------------
+# Diese Verzeichnisse gehoeren illogical-impulse. Sie werden bei jedem
+# Image-Update ueberschrieben - genau wie es der Upstream-Installer tut.
+if [ "$VERSION" != "$(cat "$STAMP" 2>/dev/null || true)" ]; then
+    log "synchronisiere Upstream-Konfiguration (Version $VERSION)"
+    mkdir -p "$CONF/quickshell" "$CONF/hypr"
+    rsync -a --delete "$DOTS/.config/quickshell/ii/" "$CONF/quickshell/ii/"
+    rsync -a --delete "$DOTS/.config/hypr/hyprland/" "$CONF/hypr/hyprland/"
+    rsync -a           "$DOTS/.config/matugen/"       "$CONF/matugen/"
+    mkdir -p "$DATA/icons"
+    cp -f "$DOTS/.local/share/icons/illogical-impulse.svg" "$DATA/icons/" 2>/dev/null || true
+fi
+
+# --- 3. Benutzer-eigene Konfiguration ---------------------------------------
+# Alles hier wird nur angelegt, wenn es noch nicht existiert. Nach einem Rebase
+# hat der Benutzer bereits ein eingerichtetes KDE - dessen kitty/fish/kdeglobals
+# duerfen wir nicht ueberbuegeln.
+seed_if_missing() {
+    local src="$1" dst="$2"
+    [ -e "$dst" ] && return 0
+    mkdir -p "$(dirname "$dst")"
+    cp -a "$src" "$dst"
+    log "angelegt: ${dst#"$HOME"/}"
+}
+
+for entry in "$DOTS"/.config/*; do
+    name="$(basename "$entry")"
+    case "$name" in
+        quickshell|hypr|matugen) continue ;;   # oben behandelt
+    esac
+    seed_if_missing "$entry" "$CONF/$name"
+done
+
+for f in hyprland.lua hyprlock.conf hypridle.conf; do
+    seed_if_missing "$DOTS/.config/hypr/$f" "$CONF/hypr/$f"
+done
+seed_if_missing "$DOTS/.config/hypr/hyprlock" "$CONF/hypr/hyprlock"
+seed_if_missing "$DOTS/.config/hypr/custom"   "$CONF/hypr/custom"
+seed_if_missing "$DOTS/.local/share/konsole"  "$DATA/konsole"
+
+# --- 4. end4-pC -------------------------------------------------------------
+# Reiner Quickshell-Config-Ordner (GPL-3.0), setzt illogical-impulse voraus.
+# Wird als echter git-Checkout kopiert, damit `git pull` darin funktioniert.
+if [ ! -d "$CONF/quickshell/end4-pC" ] && [ -d "$SHARE/end4-pC" ]; then
+    log "installiere end4-pC nach $CONF/quickshell/end4-pC"
+    mkdir -p "$CONF/quickshell"
+    cp -a "$SHARE/end4-pC" "$CONF/quickshell/end4-pC"
+fi
+
+# --- 5. Unsere Anpassungen in hypr/custom/ ----------------------------------
+# custom/ wird von illogical-impulse-Updates nie angefasst - der richtige Ort
+# fuer Nvidia-Variablen und die Shell-Auswahl.
+write_once() {
+    local path="$1"
+    [ -s "$path" ] && return 0
+    mkdir -p "$(dirname "$path")"
+    cat > "$path"
+    log "geschrieben: ${path#"$HOME"/}"
+}
+
+write_once "$CONF/hypr/custom/env.lua" <<'LUA'
+-- Nvidia. Stand wiki.hypr.land/Nvidia/ (Abruf 2026-09-08).
+-- Nur noch diese beiden Variablen werden empfohlen. GBM_BACKEND=nvidia-drm
+-- steht dort NICHT mehr - es hat mehr Probleme verursacht (u.a. in Firefox)
+-- als geloest, deshalb hier bewusst weggelassen.
+hl.env("LIBVA_DRIVER_NAME", "nvidia")
+hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
+
+-- Hardware-Videodecoding ueber NVDEC statt ueber den VDPAU-Umweg.
+hl.env("NVD_BACKEND", "direct")
+
+-- Bei mehreren GPUs hier die gewuenschte Karte festnageln, z.B.:
+-- hl.env("AQ_DRM_DEVICES", "/dev/dri/card1:/dev/dri/card0")
+LUA
+
+write_once "$CONF/hypr/custom/variables.lua" <<'LUA'
+-- Welcher Ordner unter ~/.config/quickshell/ die Shell stellt.
+-- "ii"       = illogical-impulse im Original
+-- "end4-pC"  = der Fork von pctrade (in diesem Image mitgeliefert)
+hl.env("qsConfig", "end4-pC")
+LUA
+
+write_once "$CONF/hypr/custom/execs.lua" <<'LUA'
+-- Auf Fedora startet der polkit-Agent nicht von allein. Ohne ihn erscheint bei
+-- jeder Rechteabfrage gar kein Dialog.
+--
+-- Der Upstream-Installer haengt dafuer eine Zeile an hypr/hyprland/execs.conf
+-- an - eine Datei, die seit der Lua-Umstellung nicht mehr gelesen wird. Das
+-- ist ein Upstream-Bug; hier steht sie am richtigen Ort und im richtigen
+-- Format.
+--
+-- hl.on("hyprland.start", ...) ist das Lua-Aequivalent von exec-once. Ein
+-- zweiter Handler neben dem aus hyprland/execs.lua ist genau der vorgesehene
+-- Erweiterungsweg.
+--
+-- gnome-keyring-daemon wird hier bewusst NICHT gestartet - das macht
+-- hyprland/execs.lua bereits selbst.
+hl.on("hyprland.start", function()
+    hl.exec_cmd("/usr/libexec/kf6/polkit-kde-authentication-agent-1")
+end)
+LUA
+
+# --- 6. Stempel -------------------------------------------------------------
+printf '%s\n' "$VERSION" > "$STAMP"
+log "fertig (Version $VERSION)"

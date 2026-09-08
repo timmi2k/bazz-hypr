@@ -1,0 +1,18 @@
+[Unit]
+Description=illogical-impulse und end4-pC im Benutzerverzeichnis einrichten
+Documentation=https://github.com/end-4/dots-hyprland
+# Muss durch sein, bevor eine grafische Sitzung Konfiguration liest.
+Before=graphical-session-pre.target
+ConditionPathExists=/usr/share/bazz-hypr/dots-hyprland
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/bazz-hypr-seed
+# Ein Fehler hier darf den Login nicht blockieren; die Meldung landet im
+# Journal (journalctl --user -u bazz-hypr-firstrun).
+SuccessExitStatus=0 1
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target
