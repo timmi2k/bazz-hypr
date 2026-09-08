@@ -357,7 +357,7 @@ Weil das Seeding abgebrochen war, existierte `~/.config/hypr/hyprland.lua`
 beim Start noch nicht. Im Log stand woertlich:
 
 ```
-[cfg] Regular config at /home/timta/.config/hypr/hyprland.lua
+[cfg] Regular config at ~/.config/hypr/hyprland.lua
 WARN ]: No config file found; attempting to generate.
 ```
 
@@ -498,14 +498,49 @@ frischen, leeren Schluesselbund anlegt. Beide Tresore existieren danach
 nebeneinander, und was in kwallet lag, ist unter Hyprland nicht sichtbar — im
 Test war dadurch das gespeicherte GitHub-Token weg.
 
-Dazu kommt: `/etc/pam.d/kde` laedt **kein** `pam_gnome_keyring`. Der
-Schluesselbund wird also nicht beim Login mit dem Benutzerpasswort entsperrt,
-sondern erst spaeter von der Hyprland-Konfiguration gestartet.
+**Die dreifache Passwortabfrage beim Login** hatte eine andere, einfachere
+Ursache. Der PAM-Stack des Login-Managers ist bereits richtig konfiguriert —
+`/usr/lib/pam.d/plasmalogin` enthaelt:
 
-**Offen und bewusst nicht angefasst:** PAM so zu erweitern, dass
-gnome-keyring beim Login entsperrt wird. Ein Fehler in einer PAM-Datei kann den
-Login komplett blockieren — das gehoert nicht ungefragt in ein Image, das auf
-einer Daily-Driver-Maschine landet.
+```
+-auth        optional      pam_gnome_keyring.so
+-session     optional      pam_gnome_keyring.so auto_start
+```
+
+Das fuehrende `-` bedeutet "ueberspringen, wenn das Modul fehlt". Und es fehlte:
+`pam_gnome_keyring.so` steckt nicht in `gnome-keyring`, sondern im eigenen
+Unterpaket **`gnome-keyring-pam`**, das anfangs nicht installiert war. Ohne das
+Modul entsperrt niemand den Schluesselbund beim Login, und `gcr-prompter` fragt
+stattdessen bei jedem Zugriff nach.
+
+Behoben durch Aufnahme von `gnome-keyring-pam` in die Paketliste — **ohne**
+Eingriff in PAM-Dateien. Ein Fehler dort kann den Login komplett blockieren; die
+frueher hier notierte Ueberlegung, den Stack selbst zu erweitern, hat sich damit
+erledigt.
+
+Was in kwallet lag, bleibt davon unberuehrt und ist unter Hyprland weiterhin
+nicht sichtbar. Wer alte Passwoerter braucht, kann sie mit `kwalletmanager5`
+aus `~/.local/share/kwalletd/kdewallet.kwl` exportieren.
+
+### start-hyprland statt Hyprland
+
+Hyprland warnt beim Start sichtbar:
+
+```
+WARN ]: WARNING: Hyprland is being launched without start-hyprland.
+        This is highly advised against.
+```
+
+`start-hyprland` ist ein Watchdog-Prozess, der den Compositor ueberwacht und
+nach einem Absturz aufraeumt. Das offizielle
+`/usr/share/wayland-sessions/hyprland.desktop` startet ihn ebenfalls
+(`Exec=/usr/bin/start-hyprland`); unser Session-Wrapper rief anfangs direkt
+`/usr/bin/Hyprland` auf. Korrigiert — mit Fallback auf das nackte Binary, falls
+eine kuenftige Paketierung den Watchdog nicht mitliefert.
+
+Nebenbei geklaert: `start-hyprland` kuemmert sich **nicht** um systemd-Targets
+oder die D-Bus-Aktivierungsumgebung. Das Hochziehen von
+`hyprland-session.target` bleibt also Aufgabe des Wrappers.
 
 ## Offene Punkte vor dem Rebase
 

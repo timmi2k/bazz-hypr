@@ -108,6 +108,13 @@ modules:
         # nicht mehr mitbringt. gnome-keyring fehlt in Bazzite tatsaechlich.
         - bluedevil
         - gnome-keyring
+        # Das PAM-Modul steckt in einem eigenen Unterpaket. Ohne es fragt
+        # gnome-keyring nach jedem Login per gcr-prompter erneut nach dem
+        # Passwort - /usr/lib/pam.d/plasmalogin verweist zwar schon auf
+        # pam_gnome_keyring.so, aber mit fuehrendem "-", also "ueberspringen,
+        # wenn das Modul fehlt". Mit dem Paket entsperrt der Login-Manager den
+        # Schluesselbund automatisch mit dem Anmeldepasswort.
+        - gnome-keyring-pam
         - plasma-nm
         - polkit-kde
         - dolphin
