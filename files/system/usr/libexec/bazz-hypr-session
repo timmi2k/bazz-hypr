@@ -8,7 +8,21 @@
 set -uo pipefail
 
 if [ -x /usr/libexec/bazz-hypr-seed ]; then
-    /usr/libexec/bazz-hypr-seed || echo "bazz-hypr-seed fehlgeschlagen, starte trotzdem" >&2
+    /usr/libexec/bazz-hypr-seed || echo "bazz-hypr-seed fehlgeschlagen" >&2
+fi
+
+# Sicherheitsnetz: Ohne hyprland.lua schreibt Hyprland sich beim Start selbst
+# eine Default-Konfiguration an diese Stelle ("No config file found; attempting
+# to generate") - der Desktop kommt dann ohne Keybinds, ohne Shell und ohne
+# Einstellungen hoch, und die generierte Datei bleibt danach liegen.
+# Genau das ist beim ersten echten Login passiert, weil das Seeding vorher
+# abgebrochen war. Deshalb hier die letzte Kontrolle, bevor Hyprland startet.
+HYPRLAND_LUA="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.lua"
+UPSTREAM_LUA=/usr/share/bazz-hypr/dots-hyprland/dots/.config/hypr/hyprland.lua
+if [ ! -s "$HYPRLAND_LUA" ] && [ -f "$UPSTREAM_LUA" ]; then
+    echo "bazz-hypr-session: hyprland.lua fehlt, setze sie aus dem Image" >&2
+    mkdir -p "$(dirname "$HYPRLAND_LUA")"
+    install -m 0644 "$UPSTREAM_LUA" "$HYPRLAND_LUA"
 fi
 
 # Der Binaername unterscheidet sich je nach Paketierung (Hyprland vs hyprland),

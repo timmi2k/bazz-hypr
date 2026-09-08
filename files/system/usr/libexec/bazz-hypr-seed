@@ -3,8 +3,7 @@
 #
 # Warum ueberhaupt noetig: /etc/skel greift nur bei NEU angelegten Benutzern.
 # Dieses Image landet per `rpm-ostree rebase` auf einer Maschine, auf der der
-# Account laengst existiert - dort wuerde skel nie ausgewertet. Also muss das
-# Seeding zur Laufzeit passieren.
+# Account laengst existiert - dort wuerde skel nie ausgewertet.
 #
 # Idempotent: laeuft bei jedem Login, macht aber nur etwas, wenn sich die
 # Image-Version geaendert hat oder Dateien fehlen.
@@ -16,35 +15,39 @@ CONF="${XDG_CONFIG_HOME:-$HOME/.config}"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}"
 STAMP="$STATE/bazz-hypr/seeded"
+LOCK="$STATE/bazz-hypr/seed.lock"
 
 log() { printf '[bazz-hypr-seed] %s\n' "$*"; }
 
 test -d "$DOTS" || { log "FEHLER: $DOTS fehlt - kaputtes Image?"; exit 1; }
 
-# Version = Commit der Dotfiles im Image. Aendert sie sich, wird neu gesynct.
-VERSION="$(cat "$SHARE/dots-version" 2>/dev/null || echo unknown)"
-
 mkdir -p "$CONF" "$DATA" "$STATE/bazz-hypr"
 
-# --- 1. Python-venv ---------------------------------------------------------
-# Wird im Image vorgebaut und hierher kopiert. Die Quickshell-Skripte erwarten
-# es unter genau diesem Pfad (hypr/hyprland/env.lua setzt
-# ILLOGICAL_IMPULSE_VIRTUAL_ENV=$HOME/.local/state/quickshell/.venv).
-# Kopie statt Symlink nach /usr, damit der Benutzer bei Bedarf selbst Pakete
-# nachinstallieren kann.
-VENV="$STATE/quickshell/.venv"
-if [ ! -x "$VENV/bin/python" ] && [ -d "$SHARE/venv" ]; then
-    log "kopiere Python-venv nach $VENV"
-    mkdir -p "$STATE/quickshell"
-    rm -rf "$VENV.tmp"
-    cp -a "$SHARE/venv" "$VENV.tmp"
-    mv "$VENV.tmp" "$VENV"
+# --- 0. Sperre ---------------------------------------------------------------
+# Dieses Skript hat zwei Ausloeser: den Session-Wrapper und den User-Dienst
+# bazz-hypr-firstrun.service. Beide starten beim Login praktisch gleichzeitig.
+#
+# Ohne Sperre loeschte der zweite Lauf mit `rm -rf "$VENV.tmp"` das
+# Staging-Verzeichnis des ersten mitten im Kopieren; der erste brach daraufhin
+# per `set -e` ab, bevor er die Konfiguration schreiben konnte, und Hyprland
+# startete ohne hyprland.lua. Genau so ist der erste echte Login schiefgegangen.
+exec 9>"$LOCK"
+if ! flock -w 300 9; then
+    log "FEHLER: konnte Sperre $LOCK nicht bekommen"
+    exit 1
 fi
 
-# --- 2. Upstream-eigene Konfiguration ---------------------------------------
-# Diese Verzeichnisse gehoeren illogical-impulse. Sie werden bei jedem
-# Image-Update ueberschrieben - genau wie es der Upstream-Installer tut.
-if [ "$VERSION" != "$(cat "$STAMP" 2>/dev/null || true)" ]; then
+VERSION="$(cat "$SHARE/dots-version" 2>/dev/null || echo unknown)"
+STAMPED="$(cat "$STAMP" 2>/dev/null || true)"
+
+# --- 1. Upstream-eigene Konfiguration ----------------------------------------
+# BEWUSST VOR dem venv: Hyprland startet direkt nach diesem Skript und braucht
+# hyprland.lua sofort. Das venv-Kopieren dauert deutlich laenger und ist fuer
+# den Start der Session nicht kritisch.
+#
+# Diese Pfade gehoeren illogical-impulse und werden bei jedem Image-Update
+# ueberschrieben - genauso macht es der Upstream-Installer.
+if [ "$VERSION" != "$STAMPED" ]; then
     log "synchronisiere Upstream-Konfiguration (Version $VERSION)"
     mkdir -p "$CONF/quickshell" "$CONF/hypr"
     rsync -a --delete "$DOTS/.config/quickshell/ii/" "$CONF/quickshell/ii/"
@@ -54,15 +57,31 @@ if [ "$VERSION" != "$(cat "$STAMP" 2>/dev/null || true)" ]; then
     cp -f "$DOTS/.local/share/icons/illogical-impulse.svg" "$DATA/icons/" 2>/dev/null || true
 fi
 
-# --- 3. Benutzer-eigene Konfiguration ---------------------------------------
-# Alles hier wird nur angelegt, wenn es noch nicht existiert. Nach einem Rebase
-# hat der Benutzer bereits ein eingerichtetes KDE - dessen kitty/fish/kdeglobals
-# duerfen wir nicht ueberbuegeln.
+# hyprland.lua gehoert ebenfalls dem Upstream und wird immer erneuert.
+#
+# Wichtig: Wenn Hyprland startet und die Datei fehlt, schreibt es sich selbst
+# eine Default-Konfiguration an genau diese Stelle ("No config file found;
+# attempting to generate"). Wuerde hier nur bei fehlender Datei kopiert, bliebe
+# diese generierte Default-Config dauerhaft stehen - der Desktop kaeme bei
+# jedem Login ohne Keybinds, ohne Shell-Autostart und ohne Einstellungen hoch.
+if ! cmp -s "$DOTS/.config/hypr/hyprland.lua" "$CONF/hypr/hyprland.lua"; then
+    if [ -f "$CONF/hypr/hyprland.lua" ]; then
+        cp -f "$CONF/hypr/hyprland.lua" "$CONF/hypr/hyprland.lua.bak"
+        log "hyprland.lua weicht ab - alte Fassung als hyprland.lua.bak gesichert"
+    fi
+    install -m 0644 "$DOTS/.config/hypr/hyprland.lua" "$CONF/hypr/hyprland.lua"
+    log "hyprland.lua aus dem Image gesetzt"
+fi
+
+# --- 2. Benutzer-eigene Konfiguration ----------------------------------------
+# Wird nur angelegt, wenn nicht vorhanden. Nach einem Rebase hat der Benutzer
+# ein eingerichtetes KDE - dessen kitty/fish/kdeglobals nicht ueberbuegeln.
 seed_if_missing() {
     local src="$1" dst="$2"
     [ -e "$dst" ] && return 0
     mkdir -p "$(dirname "$dst")"
     cp -a "$src" "$dst"
+    chmod -R u+w "$dst"
     log "angelegt: ${dst#"$HOME"/}"
 }
 
@@ -74,28 +93,42 @@ for entry in "$DOTS"/.config/*; do
     seed_if_missing "$entry" "$CONF/$name"
 done
 
-for f in hyprland.lua hyprlock.conf hypridle.conf; do
+for f in hyprlock.conf hypridle.conf; do
     seed_if_missing "$DOTS/.config/hypr/$f" "$CONF/hypr/$f"
 done
 seed_if_missing "$DOTS/.config/hypr/hyprlock" "$CONF/hypr/hyprlock"
 seed_if_missing "$DOTS/.config/hypr/custom"   "$CONF/hypr/custom"
 seed_if_missing "$DOTS/.local/share/konsole"  "$DATA/konsole"
 
-# --- 4. end4-pC -------------------------------------------------------------
+# --- 3. end4-pC --------------------------------------------------------------
 # Reiner Quickshell-Config-Ordner (GPL-3.0), setzt illogical-impulse voraus.
-# Wird als echter git-Checkout kopiert, damit `git pull` darin funktioniert.
+# Als echter git-Checkout kopiert, damit `git pull` darin funktioniert.
 if [ ! -d "$CONF/quickshell/end4-pC" ] && [ -d "$SHARE/end4-pC" ]; then
     log "installiere end4-pC nach $CONF/quickshell/end4-pC"
     mkdir -p "$CONF/quickshell"
     cp -a "$SHARE/end4-pC" "$CONF/quickshell/end4-pC"
+    chmod -R u+w "$CONF/quickshell/end4-pC"
 fi
 
-# --- 5. Unsere Anpassungen in hypr/custom/ ----------------------------------
+# --- 4. Unsere Anpassungen in hypr/custom/ -----------------------------------
 # custom/ wird von illogical-impulse-Updates nie angefasst - der richtige Ort
-# fuer Nvidia-Variablen und die Shell-Auswahl.
+# fuer Nvidia-Variablen, Tastaturlayout und die Shell-Auswahl.
+#
+# ACHTUNG bei der Leer-Pruefung: Die Vorlagen des Upstream sind nicht 0 Byte
+# gross, sondern enthalten ein einzelnes Newline. Ein Test auf `[ -s ]` haelt
+# sie faelschlich fuer befuellt und ueberspringt das Schreiben - genau daran
+# ist der erste Anlauf gescheitert. Deshalb wird auf "nur Leerraum" geprueft.
+is_effectively_empty() {
+    [ ! -e "$1" ] && return 0
+    [ -z "$(tr -d '[:space:]' < "$1" 2>/dev/null)" ]
+}
+
 write_once() {
     local path="$1"
-    [ -s "$path" ] && return 0
+    if ! is_effectively_empty "$path"; then
+        cat > /dev/null   # Heredoc leerlesen
+        return 0
+    fi
     mkdir -p "$(dirname "$path")"
     cat > "$path"
     log "geschrieben: ${path#"$HOME"/}"
@@ -127,22 +160,61 @@ write_once "$CONF/hypr/custom/execs.lua" <<'LUA'
 -- Auf Fedora startet der polkit-Agent nicht von allein. Ohne ihn erscheint bei
 -- jeder Rechteabfrage gar kein Dialog.
 --
--- Der Upstream-Installer haengt dafuer eine Zeile an hypr/hyprland/execs.conf
--- an - eine Datei, die seit der Lua-Umstellung nicht mehr gelesen wird. Das
--- ist ein Upstream-Bug; hier steht sie am richtigen Ort und im richtigen
--- Format.
---
--- hl.on("hyprland.start", ...) ist das Lua-Aequivalent von exec-once. Ein
--- zweiter Handler neben dem aus hyprland/execs.lua ist genau der vorgesehene
--- Erweiterungsweg.
---
--- gnome-keyring-daemon wird hier bewusst NICHT gestartet - das macht
+-- Der Upstream-Installer haengt die Zeile dafuer an hypr/hyprland/execs.conf
+-- an - eine Datei, die seit der Lua-Umstellung nicht mehr gelesen wird.
+-- gnome-keyring-daemon wird hier bewusst NICHT gestartet, das macht
 -- hyprland/execs.lua bereits selbst.
 hl.on("hyprland.start", function()
     hl.exec_cmd("/usr/libexec/kf6/polkit-kde-authentication-agent-1")
 end)
 LUA
 
-# --- 6. Stempel -------------------------------------------------------------
+# Tastaturlayout aus der Systemeinstellung uebernehmen. illogical-impulse setzt
+# in hyprland/general.lua fest kb_layout = "us"; custom/general.lua wird danach
+# geladen und ueberschreibt das.
+#
+# Layout und Variante muessen zusammenpassen - "us" kennt z.B. keine Variante
+# "nodeadkeys", und Hyprland blendet dann eine rote Fehlermeldung ein. Deshalb
+# werden beide Werte gemeinsam aus localectl uebernommen oder gar nicht.
+KB_LAYOUT="$(localectl status 2>/dev/null | sed -n 's/^ *X11 Layout: *//p' | head -1)"
+KB_VARIANT="$(localectl status 2>/dev/null | sed -n 's/^ *X11 Variant: *//p' | head -1)"
+[ -z "$KB_LAYOUT" ] && KB_LAYOUT="us" && KB_VARIANT=""
+
+write_once "$CONF/hypr/custom/general.lua" <<LUA
+-- Tastaturlayout, uebernommen aus der Systemeinstellung (localectl).
+-- illogical-impulse setzt in hyprland/general.lua fest kb_layout = "us";
+-- diese Datei wird danach geladen und ueberschreibt das.
+hl.config({
+    input = {
+        kb_layout = "${KB_LAYOUT}",
+        kb_variant = "${KB_VARIANT}"
+    }
+})
+LUA
+
+# --- 5. Python-venv ----------------------------------------------------------
+# Zuletzt, weil es mit Abstand am laengsten dauert (~330 MB) und die Session
+# ohne es startet. Die Quickshell-Skripte erwarten es unter genau diesem Pfad
+# (hyprland/env.lua setzt ILLOGICAL_IMPULSE_VIRTUAL_ENV darauf).
+# Kopie statt Symlink nach /usr, damit der Benutzer selbst Pakete nachlegen kann.
+VENV="$STATE/quickshell/.venv"
+if [ ! -x "$VENV/bin/python" ] && [ -d "$SHARE/venv" ]; then
+    log "kopiere Python-venv nach $VENV (dauert einen Moment)"
+    mkdir -p "$STATE/quickshell"
+    rm -rf "$VENV" "$VENV.tmp"
+    cp -a "$SHARE/venv" "$VENV.tmp"
+    chmod -R u+w "$VENV.tmp"
+    # Erst nach vollstaendiger Kopie umbenennen: ein abgebrochener Lauf
+    # hinterlaesst dann kein halbes venv, das beim naechsten Mal als fertig gilt.
+    if [ -x "$VENV.tmp/bin/python" ]; then
+        mv "$VENV.tmp" "$VENV"
+        log "venv bereit ($("$VENV/bin/python" -V 2>&1))"
+    else
+        log "FEHLER: venv-Kopie unvollstaendig, verwerfe sie"
+        rm -rf "$VENV.tmp"
+    fi
+fi
+
+# --- 6. Stempel --------------------------------------------------------------
 printf '%s\n' "$VERSION" > "$STAMP"
 log "fertig (Version $VERSION)"
