@@ -339,6 +339,10 @@ Danach `hyprctl reload`, oder `Ctrl+Super+R` startet die Shell neu.
   `"network": "kitty -1 fish -c nmtui"` → `"network": "plasmawindowed org.kde.plasma.networkmanagement"`.
   Diese Datei entsteht erst beim ersten Start der Shell, deshalb ist der Fix
   hier nicht vorbaked.
+* **Quickshell 0.3.1 statt 0.2.1** — das groesste Restrisiko. Der Build ist
+  gruen, aber ob die ii-QML-Konfiguration mit dieser Version vollstaendig
+  laeuft, zeigt sich erst beim Start der Shell. Details und zwei Ausweichpfade
+  im Abschnitt *"Quickshell: warum nicht die COPR von illogical-impulse"*.
 * **Nicht getestet**: Es gab keinen Boot-Test in einer VM — auf dieser Maschine
   sind weder `qemu` noch `libvirt` installiert, und es sollte nichts
   nachinstalliert werden. Der Build ist gruen, der tatsaechliche
@@ -347,6 +351,8 @@ Danach `hyprctl reload`, oder `Ctrl+Super+R` startet die Shell neu.
 ---
 
 ## Rebase
+
+Das Image steht: `ghcr.io/timmi2k/bazz-hypr:latest`
 
 > Wird **nicht** automatisch ausgefuehrt. Die Befehle stehen in `PLAN.md`,
 > Phase 6 — dort auch der Rollback.

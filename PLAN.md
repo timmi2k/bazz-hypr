@@ -58,7 +58,7 @@ richtig angelegt.
 
 ---
 
-## Phase 3 — GitHub & GHCR ⏳ braucht dich
+## Phase 3 — GitHub & GHCR ✅ abgeschlossen
 
 Cosign-Keypair ist bereits erzeugt: `cosign.pub` (eingecheckt) und `cosign.key`
 (liegt lokal, ist per `.gitignore` ausgeschlossen und darf **nie** committet
@@ -90,52 +90,77 @@ Schritte:
    → *Change visibility* → *Public*.
    Ohne diesen Schritt scheitert der Rebase mit einem Auth-Fehler.
 
-**Fertig, wenn:** `gh repo view` das Repo zeigt und
-`gh secret list` `SIGNING_SECRET` enthaelt.
+Erledigt: Repo `timmi2k/bazz-hypr` ist public, `SIGNING_SECRET` gesetzt, das
+Container-Package ist anonym abrufbar (gegen `ghcr.io/v2/.../manifests/latest`
+ohne Anmeldung mit HTTP 200 geprueft).
+
+**Hinweis zur Historie:** Das Repo wurde einmal geloescht und neu angelegt, weil
+der erste Commit die private Mailadresse als Git-Author enthielt. Ein
+force-push reicht dafuer nicht - GitHub liefert den ersetzten Commit unter
+seiner SHA weiter aus. Die aktuelle Historie hat genau einen Commit mit
+`74569037+timmi2k@users.noreply.github.com`.
+
+Empfehlung: in den GitHub-Einstellungen unter *Emails* die Option
+**"Block command line pushes that expose my email"** einschalten - dann lehnt
+GitHub so einen Push von vornherein ab.
 
 ---
 
-## Phase 4 — Build in CI ⏳ laeuft, ein Fehler bereits behoben
+## Phase 4 — Build in CI ✅ gruen
 
-**Build 1 (34244504837) ist fehlgeschlagen** — und der Fehler war wertvoll:
+Erfolgreicher Build: Run `34246345464`, 7m29s.
+Image: `ghcr.io/timmi2k/bazz-hypr:latest`
+(Digest `sha256:0e9cf9ed1c41d552d33fa63a1d82f0b4814de09ab30b954ce887298d678ba76f`,
+Tags `latest`, `20260908`, `44`, `20260908-44` — cosign-Signaturen liegen daneben.)
+
+Verifiziert im Build-Log:
+
+* beide Dotfile-Repos auf den gepinnten Commits geklont, Struktur-Checks bestanden
+* `quickshell-git 0.3.1^856` installiert, `cpptrace 1.0.4-1.patched` und
+  `libdwarf 2.3.1-1.fc44` sauber aufgeloest
+* venv mit Python **3.12.14** gebaut, Import-Check bestanden
+  (`materialyoucolor`, `PIL`, `gi`, `cairo`, `numpy`, `cv2`, `sass`,
+  `kde-material-you-colors`)
+* `ydotool.service` als User-Unit verlinkt
+
+### Die zwei Fehlschlaege davor — beide lehrreich
+
+**Build 1 (34244504837), Qt-Konflikt:**
 
 ```
 quickshell-git … requires libQt6Qml.so.6(Qt_6.10_PRIVATE_API)
 Package "qt6-qtdeclarative-6.11.2-1.fc44" is already installed
 ```
 
-Quickshell aus `ririko66z/dots-hyprland` ist gegen Qt 6.10 gelinkt, Bazzite hat
-Qt 6.11 und sperrt das Downgrade. Behoben durch Umstellung auf
-`errornointernet/quickshell` und Repo-Pinning der beiden Qt-empfindlichen
-Pakete. Details und die verbleibende Unsicherheit: `README.md`, Abschnitt
-*"Quickshell: warum nicht die COPR von illogical-impulse"*.
+Quickshell bindet Qt-Private-APIs versionsgenau. Der Build in
+`ririko66z/dots-hyprland` — die COPR, die `feddeps.toml` vorschreibt — ist vom
+2025-12-18 und gegen Qt 6.10 gelinkt; Bazzite hat Qt 6.11 und sperrt das
+Downgrade. Geloest durch Umstieg auf `errornointernet/quickshell`.
 
-Diese Klasse von Fehler war lokal nicht auffindbar: `dnf repoquery` zeigt nur,
-**ob** ein Paket existiert, nicht ob es sich gegen den Bestand der Base
-aufloesen laesst. Dafuer braucht es den echten Build.
+**Build 2 (34245617493), selbstverschuldet:**
 
 ```
-gh workflow run bluebuild
-gh run watch
+nothing provides libdwarf.so.2 needed by cpptrace-1.0.4-1.patched.fc44
 ```
 
-Bei Fehlern iterieren. Was erfahrungsgemaess zuerst bricht:
+Ursache war das `repo:`-Pinning, mit dem ich quickshell an die COPR gebunden
+hatte. Ein `repo:`-Eintrag schraenkt die dnf-Aufloesung auf genau diese Repo
+ein — Fedoras `libdwarf-2.3.1` (das `libdwarf.so.2` sehr wohl liefert) war
+dadurch unsichtbar. Ohne Pinning waehlt dnf ohnehin die hoechste Version.
+
+**Merkregel:** `dnf repoquery` sagt nur, *ob* ein Paket existiert — nicht, ob es
+sich gegen den Bestand der Base aufloesen laesst. Beide Fehler waren lokal nicht
+findbar, dafuer braucht es den echten Build.
+
+### Wenn ein spaeterer Build bricht
 
 | Symptom | wahrscheinliche Ursache |
 |---|---|
-| `No match for argument: <paket>` | Paketname in Fedora 45 umbenannt, oder COPR-Chroot fuer neues Release fehlt. `skip-unavailable: true` faengt das ab — im Log nachsehen, was uebersprungen wurde. |
-| Build bricht in `install-dots.sh` mit "Struktur hat sich geaendert" | Upstream hat Dateien verschoben. SHA pruefen, Pfade im Skript anpassen. |
-| `build-venv.sh` scheitert beim Kompilieren | ein `-devel`-Paket fehlt. Fehlender Header steht im Log. |
-| Runner hat keinen Plattenplatz | `maximize_build_space: true` ist gesetzt; ggf. `tesseract-langpack-*` und weitere Fonts kuerzen. |
-| Push nach ghcr.io mit 403 | `packages: write`-Permission oder `SIGNING_SECRET` fehlt. |
-
-**Fertig, wenn:** der Run gruen ist und
-```
-skopeo inspect docker://ghcr.io/timmi2k/bazz-hypr:latest
-```
-ein Manifest zurueckgibt.
-
----
+| `Qt_6.xx_PRIVATE_API` nicht erfuellbar | Bazzite hat Qt gebumpt, die COPR noch nicht nachgebaut. Alternativen im README-Abschnitt zu Quickshell. |
+| `nothing provides <lib>` | Ein `repo:`-Pinning verdeckt das Fedora-Repo, oder eine COPR wurde nicht neu gebaut. |
+| `No match for argument: <paket>` | Paketname umbenannt oder COPR-Chroot fuer ein neues Fedora-Release fehlt. `skip-unavailable: true` faengt das ab — im Log nachsehen, was uebersprungen wurde. |
+| Abbruch in `install-dots.sh` mit "Struktur hat sich geaendert" | Upstream hat Dateien verschoben. SHA pruefen, Pfade anpassen. |
+| `build-venv.sh` scheitert beim Kompilieren | ein `-devel`-Paket fehlt; der fehlende Header steht im Log. |
 
 ## Phase 5 — VM-Boot-Test ⚠️ uebersprungen
 
