@@ -166,6 +166,15 @@ write_once "$CONF/hypr/custom/execs.lua" <<'LUA'
 -- hyprland/execs.lua bereits selbst.
 hl.on("hyprland.start", function()
     hl.exec_cmd("/usr/libexec/kf6/polkit-kde-authentication-agent-1")
+
+    -- graphical-session.target hochziehen. Hyprland wird direkt vom
+    -- Login-Manager gestartet (nicht ueber uwsm), deshalb aktiviert es sonst
+    -- niemand - und ohne dieses Target bleiben alle xdg-desktop-portal-
+    -- Backends tot. Electron-Anwendungen wie Discord und Chrome haengen dann
+    -- beim Start. Das Target selbst weigert sich, direkt gestartet zu werden;
+    -- hyprland-session.target zieht es per BindsTo herein.
+    -- --no-block, weil systemctl sonst auf das Settling wartet und blockiert.
+    hl.exec_cmd("systemctl --user start --no-block hyprland-session.target")
 end)
 LUA
 

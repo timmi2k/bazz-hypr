@@ -1,0 +1,22 @@
+[Unit]
+Description=Hyprland session
+Documentation=man:systemd.special(7)
+
+# Warum diese Unit ueberhaupt existiert:
+#
+# Hyprland wird hier direkt vom Login-Manager gestartet, nicht ueber uwsm -
+# der Upstream-Installer von illogical-impulse warnt sogar ausdruecklich davor,
+# im Login-Manager den UWSM-Eintrag zu waehlen. Damit aktiviert aber niemand
+# graphical-session.target, und das laesst sich auch nicht von Hand starten
+# ("Operation refused, unit may be requested by dependency only").
+#
+# Folge ohne diese Unit: saemtliche xdg-desktop-portal-Backends bleiben tot,
+# weil sie graphical-session.target voraussetzen. Electron-Anwendungen wie
+# Discord und Chrome haengen dann beim Start oder frieren ein - genau so ist
+# es auf der Zielmaschine passiert.
+#
+# BindsTo zieht graphical-session.target mit hoch. Gestartet wird diese Unit
+# aus ~/.config/hypr/custom/execs.lua, sobald der Compositor oben ist.
+BindsTo=graphical-session.target
+Wants=graphical-session-pre.target
+After=graphical-session-pre.target

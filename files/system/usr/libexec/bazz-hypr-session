@@ -25,6 +25,26 @@ if [ ! -s "$HYPRLAND_LUA" ] && [ -f "$UPSTREAM_LUA" ]; then
     install -m 0644 "$UPSTREAM_LUA" "$HYPRLAND_LUA"
 fi
 
+# graphical-session.target hochziehen, sobald der Compositor seinen Socket
+# angelegt hat.
+#
+# Das steht zusaetzlich in custom/execs.lua - aber diese Datei wird nur einmal
+# geschrieben und nie wieder angefasst, damit eigene Aenderungen erhalten
+# bleiben. Bestehende Installationen bekaemen den Fix dort also nie. Hier
+# greift er unabhaengig davon.
+#
+# Ohne das Target bleiben alle xdg-desktop-portal-Backends tot und
+# Electron-Anwendungen (Discord, Chrome) haengen beim Start.
+(
+    for _ in $(seq 1 40); do
+        if [ -n "$(ls -A "/run/user/$(id -u)/hypr" 2>/dev/null)" ]; then
+            break
+        fi
+        sleep 0.5
+    done
+    systemctl --user start --no-block hyprland-session.target 2>/dev/null || true
+) &
+
 # Der Binaername unterscheidet sich je nach Paketierung (Hyprland vs hyprland),
 # deshalb nicht fest verdrahten - ein falscher Pfad hiesse: Session startet gar
 # nicht und der Benutzer landet wortlos zurueck im Login-Manager.
