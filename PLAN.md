@@ -189,12 +189,29 @@ Zur Zeit der Planung war das:
 `ostree-image-signed:docker://ghcr.io/ublue-os/bazzite-nvidia-open:stable`,
 mit den gelayerten Paketen `kvantum` und `netbird-ui`.
 
-### Rebase
+### Rebase — zwei Schritte
+
+Der erste Rebase muss **unverified** laufen: die cosign-Policy, die die Signatur
+pruefbar macht, steckt im Image selbst und ist auf dem laufenden Bazzite noch
+nicht vorhanden. Nach dem ersten Boot ist sie da, und der zweite Befehl stellt
+auf die signaturgepruefte Referenz um - ab dann sind auch alle kuenftigen
+`rpm-ostree upgrade` signaturgeprueft.
 
 ```
 rpm-ostree rebase ostree-unverified-registry:ghcr.io/timmi2k/bazz-hypr:latest
 systemctl reboot
 ```
+
+Nach dem Neustart und einem erfolgreichen Login:
+
+```
+rpm-ostree rebase ostree-image-signed:docker://ghcr.io/timmi2k/bazz-hypr:latest
+systemctl reboot
+```
+
+**Deine gelayerten Pakete** (`kvantum`, `netbird-ui`) werden beim Rebase
+mitgenommen. Keines davon ist im Image enthalten, es sollte also keinen
+Konflikt geben.
 
 Beim allerersten Login im SDDM unten links **"Hyprland (illogical-impulse)"**
 auswaehlen. Einen etwaigen UWSM-Eintrag *nicht* nehmen.
