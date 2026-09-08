@@ -152,6 +152,17 @@ dadurch unsichtbar. Ohne Pinning waehlt dnf ohnehin die hoechste Version.
 sich gegen den Bestand der Base aufloesen laesst. Beide Fehler waren lokal nicht
 findbar, dafuer braucht es den echten Build.
 
+### Versionslage bei Quickshell
+
+Die RPM-Versionsstrings taeuschen. Echte Releases: v0.2.1 (2025-10-12),
+v0.3.0 (2026-05-04), v0.3.1 (2026-08-21). Tatsaechlicher git-Stand:
+end-4 `0.2.1^770` = ~2026-08-18, `errornointernet` `0.3.1^856` = 2026-09-04,
+Fedora `0.2.1^git20260209` = 2026-02-09.
+
+Das Image liegt also rund zwei Wochen neben dem, was end-4 selbst baut —
+Fedoras Paket laege sieben Monate daneben und vor v0.3.0. Ein Wechsel dorthin
+ist **kein** konservativerer Schritt, sondern der groessere Sprung.
+
 ### Wenn ein spaeterer Build bricht
 
 | Symptom | wahrscheinliche Ursache |

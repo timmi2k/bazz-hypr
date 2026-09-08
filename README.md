@@ -181,24 +181,39 @@ gebunden, statt dnf die Version waehlen zu lassen. `ririko66z/dots-hyprland`
 bleibt eingebunden, aber nur noch fuer die Qt-freien Pakete (microtex,
 breakpad, songrec, Cursor, Icons, Fonts).
 
-**Offene Unsicherheit — bitte vor dem Rebase lesen:** `errornointernet` liefert
-`quickshell-git 0.3.1^856.git2d3b3e9` (Build vom 2026-09-04), end-4 baut fuer
-sich selbst `0.2.1^770.git7511545` (hochgeladen 2026-08-18). Das ist ein
-Versionssprung ueber eine Minor-Grenze. Ob die ii-QML-Konfiguration damit
-vollstaendig laeuft, **ist nicht verifiziert** — das liesse sich nur durch
-Starten der Shell pruefen, und dafuer gab es hier keine Testumgebung.
+**Zur Versionsfrage** — die Versionsstrings sind irrefuehrend, deshalb hier
+aufgeloest. Quickshell-Releases: v0.2.1 am 2025-10-12, v0.3.0 am 2026-05-04,
+v0.3.1 am 2026-08-21.
 
-Was dafuer spricht: illogical-impulse wird gegen Quickshell-*git-master*
-entwickelt, nicht gegen einen Release-Stand, und der Fedora-Installer von
-EisregenHaha nutzt fuer ii ebenfalls `errornointernet/quickshell`.
+| Quelle | Versionsstring | tatsaechlicher git-Stand |
+|---|---|---|
+| end-4 fuer sich selbst | `0.2.1^770.git7511545` | ~2026-08-18 |
+| `errornointernet` (in diesem Image) | `0.3.1^856.git2d3b3e9` | 2026-09-04 |
+| Fedora 44 | `0.2.1^git20260209.dacfa9d` | 2026-02-09 |
 
-Falls die Shell nach dem Rebase mit QML-Fehlern hochkommt, gibt es zwei
-Ausweichpfade — jeweils eine Zeile im Rezept:
+end-4s `0.2.1^770` zaehlt Commits seit dem alten Tag v0.2.1, liegt aber
+tatsaechlich im August 2026 — also in der v0.3.1-Generation. **end-4 und
+errornointernet trennen nur rund zwei Wochen.** Das hier eingebundene Paket ist
+damit die beste verfuegbare Uebereinstimmung mit dem, wogegen illogical-impulse
+entwickelt wird.
 
-1. `quickshell` (Release 0.3.1-2) statt `quickshell-git` aus derselben COPR.
-2. Fedoras eigenes `quickshell` (`0.2.1^git20260209`, naeher an dem, was end-4
-   baut). Es liegt in `updates` und wird von Fedora bei jedem Qt-Bump neu
-   gebaut — langfristig die robusteste, aber aelteste Variante.
+Fedoras Paket ist der Ausreisser: Stand Februar 2026, also **vor v0.3.0**. Es
+haette eine Konfiguration von August 2026 auf einer Shell von sieben Monaten
+davor bedeutet, quer ueber eine Major-Release-Grenze. Als Ausweichpfad ist es
+deshalb die *letzte* Wahl, nicht die erste.
+
+Verifiziert ist der Build, nicht der Betrieb: ob die ii-QML-Konfiguration
+vollstaendig laeuft, zeigt sich erst beim Start der Shell. Falls es klemmt, in
+dieser Reihenfolge probieren — jeweils eine Zeile im Rezept:
+
+1. `quickshell` (getaggtes Release 0.3.1-2, 2026-08-21) aus derselben COPR
+   statt `quickshell-git`. Minimal aelter, dafuer ein Release statt eines
+   git-Snapshots.
+2. Den Dotfiles-Pin in `files/scripts/install-dots.sh` auf einen aelteren
+   dots-hyprland-Commit zurueckziehen, statt an der Shell zu drehen.
+3. Fedoras `quickshell` — nur, wenn die COPR ausfaellt. Es wird von Fedora bei
+   jedem Qt-Bump neu gebaut und ist dadurch langfristig am wartungsaermsten,
+   liegt inhaltlich aber am weitesten weg.
 
 ### Doppelungen bei den KDE-Ersatzdiensten
 
@@ -339,10 +354,11 @@ Danach `hyprctl reload`, oder `Ctrl+Super+R` startet die Shell neu.
   `"network": "kitty -1 fish -c nmtui"` → `"network": "plasmawindowed org.kde.plasma.networkmanagement"`.
   Diese Datei entsteht erst beim ersten Start der Shell, deshalb ist der Fix
   hier nicht vorbaked.
-* **Quickshell 0.3.1 statt 0.2.1** — das groesste Restrisiko. Der Build ist
-  gruen, aber ob die ii-QML-Konfiguration mit dieser Version vollstaendig
-  laeuft, zeigt sich erst beim Start der Shell. Details und zwei Ausweichpfade
-  im Abschnitt *"Quickshell: warum nicht die COPR von illogical-impulse"*.
+* **Quickshell ist ein git-Snapshot vom 2026-09-04**, end-4 selbst baut einen
+  vom ~2026-08-18. Zwei Wochen Abstand, gleiche Generation — das Risiko ist
+  klein, aber der Build beweist nur, dass sich alles installieren laesst, nicht
+  dass die Shell laeuft. Ausweichpfade im Abschnitt *"Quickshell: warum nicht
+  die COPR von illogical-impulse"*.
 * **Nicht getestet**: Es gab keinen Boot-Test in einer VM — auf dieser Maschine
   sind weder `qemu` noch `libvirt` installiert, und es sollte nichts
   nachinstalliert werden. Der Build ist gruen, der tatsaechliche
