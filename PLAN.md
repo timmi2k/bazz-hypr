@@ -232,6 +232,21 @@ rpm-ostree rebase ostree-image-signed:docker://ghcr.io/timmi2k/bazz-hypr:latest
 systemctl reboot
 ```
 
+**Ab dem zweiten Mal entfaellt der Zweischritt.** Die Policy liegt dann im
+laufenden Image, und jedes weitere Update kann direkt signaturgeprueft
+eingespielt werden - der Rebase auf die signierte Referenz holt dabei zugleich
+das neue Image, ein separates `rpm-ostree upgrade` davor ist ueberfluessig.
+
+Ueberpruefen laesst sich das jederzeit ohne Rebase:
+
+```
+cosign verify --key cosign.pub ghcr.io/timmi2k/bazz-hypr:latest
+jq '.transports.docker | to_entries[] | select(.key|test("bazz-hypr"))' /etc/containers/policy.json
+```
+
+Der Digest in der cosign-Ausgabe muss dem entsprechen, den die Registry fuer
+`:latest` meldet.
+
 **Deine gelayerten Pakete** (`kvantum`, `netbird-ui`) werden beim Rebase
 mitgenommen. Keines davon ist im Image enthalten, es sollte also keinen
 Konflikt geben.
