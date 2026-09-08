@@ -167,11 +167,18 @@ modules:
         - qt6-qtvirtualkeyboard
         - kf6-syntax-highlighting
         # --- illogical-impulse-Kern ---
-        # quickshell bindet Qt-Private-APIs versionsgenau, deshalb hier die
-        # Repo festnageln statt dnf die Version waehlen zu lassen.
-        - repo: copr:copr.fedorainfracloud.org:errornointernet:quickshell
-          packages:
-            - quickshell-git
+        # quickshell-git bewusst OHNE repo:-Pinning.
+        #
+        # Ein "repo:"-Eintrag schraenkt die Aufloesung auf genau diese eine
+        # Repo ein. quickshell-git zieht cpptrace nach, das wiederum
+        # libdwarf.so.2 aus dem Fedora-Repo braucht - mit Pinning war das
+        # unsichtbar und der zweite CI-Build scheiterte an
+        # "nothing provides libdwarf.so.2".
+        #
+        # Ohne Pinning waehlt dnf die hoechste Version, und das ist
+        # errornointernet (0.3.1^856) vor ririko66z (0.2.1^713). Damit greift
+        # automatisch der gegen Qt 6.11 gebaute Kandidat.
+        - quickshell-git
         # matugen liegt in Fedora 44 selbst.
         - matugen
         # --- Screenshot / Screencapture ---
