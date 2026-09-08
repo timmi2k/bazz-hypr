@@ -421,6 +421,74 @@ aber zwei Warnungen mehr:
 Beides ist nicht fatal, kann aber einzelne Bar-Elemente betreffen. Wer es
 sauberer mag, stellt in `custom/variables.lua` auf `"ii"` um.
 
+### graphical-session.target wird von niemandem aktiviert
+
+Nach dem Rebase liessen sich Discord und Chrome nicht starten bzw. froren ein.
+Ursache: `graphical-session.target` war inaktiv, und daran haengen **alle**
+xdg-desktop-portal-Backends.
+
+Hyprland wird hier direkt vom Login-Manager gestartet, nicht ueber uwsm - der
+illogical-impulse-Installer warnt sogar ausdruecklich davor, im Login-Manager
+den UWSM-Eintrag zu waehlen. Damit aktiviert das Target aber niemand, und von
+Hand geht es auch nicht:
+
+```
+Operation refused, unit graphical-session.target may be requested by
+dependency only (it is configured to refuse manual start/stop).
+```
+
+Das Image bringt deshalb eine eigene `hyprland-session.target` mit, die es per
+`BindsTo` hereinzieht. Gestartet wird sie an zwei Stellen:
+
+* aus `custom/execs.lua` - fuer neue Installationen,
+* aus dem Session-Wrapper - fuer bestehende, denn `custom/execs.lua` wird nur
+  einmal geschrieben und danach nie wieder angefasst; dort kaeme der Fix sonst
+  nie an.
+
+`systemctl start` braucht dabei `--no-block`: ohne das wartet es auf das
+Settling der Unit und laeuft in einen Timeout, obwohl das Target laengst
+aktiv ist.
+
+### Electron-Anwendungen auf Nvidia
+
+Discord (Flatpak) stuerzte reproduzierbar mit SIGSEGV im Renderer ab, gestartet
+mit `--ozone-platform=wayland`. Ausgeloest wird das von
+`ELECTRON_OZONE_PLATFORM_HINT=auto`, das illogical-impulse in
+`hyprland/env.lua` setzt - auf Nvidia waehlt `auto` Wayland, und der
+Electron-Renderer faellt um.
+
+Der Wert wird hier **nicht** global geaendert: das Hyprland-Wiki empfiehlt
+Wayland fuer Electron ausdruecklich, und die meisten Anwendungen laufen damit
+auch. Stattdessen pro Anwendung umstellen:
+
+```
+flatpak override --user --env=ELECTRON_OZONE_PLATFORM_HINT=x11 com.discordapp.Discord
+```
+
+Ein Nebeneffekt der Abstuerze ist unangenehmer als der Absturz selbst:
+`systemd-coredump` verarbeitet jeden Dump (10-30 MB komprimiert) und zieht
+dabei so viel CPU und I/O, dass der ganze Desktop ruckelt - im Hyprland-Log
+sichtbar als *"client bug: event processing lagging behind, your system is too
+slow"*. Aufraeumen mit:
+
+```
+sudo rm -f /var/lib/systemd/coredump/core.Discord.*
+```
+
+### Nvidia: atomic DRM commit
+
+Im Hyprland-Log tauchen regelmaessig auf:
+
+```
+atomic drm request: failed to commit: Device or resource busy,
+flags: ATOMIC_NONBLOCK PAGE_FLIP_EVENT
+```
+
+Das ist ein bekanntes Nvidia-Verhalten und war hier nicht die Ursache der
+Ruckler (die kamen von der Coredump-Verarbeitung). Falls es doch einmal
+stoert, waere `AQ_NO_ATOMIC=1` in `custom/env.lua` der naechste Versuch -
+ungetestet.
+
 ### Schluesselbund: kwallet gegen gnome-keyring
 
 Unter Plasma lagen die Passwoerter in **kwallet**
