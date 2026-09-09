@@ -392,6 +392,48 @@ Wichtig: Layout und Variante muessen **zusammen** gesetzt werden. Ein
 Zwischenzustand mit `us` + `nodeadkeys` ist ungueltig — `us` kennt diese
 Variante nicht — und Hyprland blendet dafuer eine rote Fehlermeldung ein.
 
+### Monitor-Keybinds und Spiele-Monitor
+
+Zwei Bloecke, die `bazz-hypr-seed` nach `custom/` schreibt:
+
+| Bind | Wirkung |
+|---|---|
+| `SUPER+ALT+←/→` | Fenster auf den Nachbarmonitor |
+| `SUPER+SHIFT+ALT+←/→` | ganzen Workspace auf den Nachbarmonitor |
+
+Fuer Vollbild-Spiele ist die SHIFT-Variante die richtige: einen Workspace zu
+verschieben laesst den Fullscreen-State intakt, waehrend ein einzeln
+verschobenes Fenster zurueckspringt, sobald das Spiel den Fullscreen neu
+greift. Die Binds sind richtungsbasiert (`l`/`r`) und damit hardwareunabhaengig.
+
+Dazu Fensterregeln, die Spiele auf den **groessten angeschlossenen** Monitor
+schicken — einmal ueber Hyprlands Content-Type `game`, einmal ueber einen
+Klassen-Regex (`cs2`, `steam_app_<id>`, `gamescope`, `*.exe`) als Rueckfallebene
+fuer alles, was den Content-Type nicht meldet. Gesetzt wird nur der Monitor,
+nicht der Workspace.
+
+Der Monitorname ist **nicht** fest verdrahtet: das Seed-Skript liest
+`/sys/class/drm/card*-*/`, nimmt vom groessten angeschlossenen Anschluss den
+Connector-Namen und setzt ihn ein. Die DRM-Namen (`DP-3`, `HDMI-A-1`, ...) sind
+exakt die, die Hyprland selbst verwendet.
+
+Regeln greifen beim **Oeffnen** des Fensters. Ein bereits laufendes Spiel zieht
+also nicht von selbst um — dafuer sind die Keybinds da.
+
+#### append_once statt write_once
+
+`write_once` fasst eine Datei nur an, solange sie leer ist. Fuer
+`custom/keybinds.lua` reicht das nicht: der Upstream liefert sie mit einer Zeile
+aus (`Edit user keybinds`), womit `write_once` sie fuer befuellt haelt und
+immer ueberspringt — genau die Falle wie bei Punkt 3 oben, nur eine Ebene
+weiter. `append_once` haengt stattdessen einen mit `-- >>> bazz-hypr: ...`
+markierten Block an und erkennt an dieser Marke, dass er schon da ist.
+
+Dabei ist `grep -qFe` Pflicht, nicht Kosmetik: die Marke beginnt mit `--`. Ohne
+`-e` haelt grep sie fuer eine Optionsliste, bricht mit "invalid option" ab und
+meldet damit "nicht gefunden" — der Block waere bei **jedem** Login erneut
+angehaengt worden. Genau das ist im Test passiert, bevor `-e` dazukam.
+
 ### Lua-Modulcache
 
 `hyprctl reload` laedt geaenderte `custom/*.lua` **nicht** neu: Lua cacht

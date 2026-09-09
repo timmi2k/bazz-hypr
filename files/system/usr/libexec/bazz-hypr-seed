@@ -134,6 +134,32 @@ write_once() {
     log "geschrieben: ${path#"$HOME"/}"
 }
 
+# Haengt einen markierten Block an, statt die ganze Datei zu schreiben.
+#
+# Warum zusaetzlich zu write_once: write_once ruehrt eine Datei nur an, solange
+# sie leer ist. custom/keybinds.lua bringt der Upstream aber bereits mit einer
+# Zeile mit ("Edit user keybinds"), womit write_once sie immer uebersprungen
+# haette - der Block waere auf einer frischen Installation nie gelandet.
+#
+# Die Marke bleibt als Kommentar stehen und ist die einzige Erkennung: ein
+# zweiter Lauf findet sie und haengt nichts nach. Wer den Block nicht will,
+# loescht ihn samt Marke -- dann kommt er beim naechsten Login wieder; wer ihn
+# anpassen will, laesst die Marke stehen und aendert darunter frei herum.
+append_once() {
+    local path="$1" marker="$2"
+    # -e ist Pflicht, nicht Kosmetik: die Marke beginnt mit "--", ohne -e haelt
+    # grep sie fuer eine Optionsliste, bricht ab und meldet "nicht gefunden" -
+    # der Block waere dann bei jedem Login erneut angehaengt worden.
+    if [ -e "$path" ] && grep -qFe "$marker" "$path" 2>/dev/null; then
+        cat > /dev/null   # Heredoc leerlesen
+        return 0
+    fi
+    mkdir -p "$(dirname "$path")"
+    printf '\n%s\n' "$marker" >> "$path"
+    cat >> "$path"
+    log "ergaenzt: ${path#"$HOME"/}"
+}
+
 write_once "$CONF/hypr/custom/env.lua" <<'LUA'
 -- Nvidia. Stand wiki.hypr.land/Nvidia/ (Abruf 2026-09-08).
 -- Nur noch diese beiden Variablen werden empfohlen. GBM_BACKEND=nvidia-drm
@@ -200,6 +226,76 @@ hl.config({
     }
 })
 LUA
+
+# Monitor-Keybinds. Rein richtungsbasiert (l/r), damit der Block auf jeder
+# Maschine passt, egal wie die Ausgaenge heissen.
+append_once "$CONF/hypr/custom/keybinds.lua" "-- >>> bazz-hypr: monitor-keybinds" <<'LUA'
+-- Fenster bzw. ganzen Workspace auf den Nachbarmonitor schieben.
+--
+-- Fuer Vollbild-Spiele die SHIFT-Variante nehmen: einen ganzen Workspace zu
+-- verschieben laesst den Fullscreen-State intakt, waehrend ein einzeln
+-- verschobenes Fenster zurueckspringt, sobald das Spiel den Fullscreen neu
+-- greift.
+for i = 1, 2 do
+    local arrowkey = { "Left", "Right" }
+    local mondir = { "l", "r" }
+    hl.bind("SUPER + ALT + " .. arrowkey[i], hl.dsp.window.move({ monitor = mondir[i] }),
+        { description = "Window: Move to monitor " .. arrowkey[i] })
+    hl.bind("SUPER + SHIFT + ALT + " .. arrowkey[i], hl.dsp.workspace.move({ monitor = mondir[i] }),
+        { description = "Workspace: Move to monitor " .. arrowkey[i] })
+end
+LUA
+
+# Spiele-Monitor bestimmen: der groesste angeschlossene Schirm.
+#
+# Die DRM-Connector-Namen unter /sys/class/drm (DP-3, HDMI-A-1, ...) sind exakt
+# die, die Hyprland selbst verwendet - sie taugen deshalb direkt als Wert fuer
+# die Fensterregel. Erste Zeile von `modes` ist die hoechste Aufloesung des
+# Anschlusses. So muss hier kein Ausgangsname fest verdrahtet werden.
+detect_game_monitor() {
+    local best="" best_px=0 dir conn mode w h px
+    for dir in /sys/class/drm/card*-*; do
+        [ -r "$dir/status" ] || continue
+        [ "$(cat "$dir/status")" = "connected" ] || continue
+        mode="$(head -1 "$dir/modes" 2>/dev/null)"
+        w="${mode%%x*}"
+        h="${mode##*x}"
+        case "$w$h" in ''|*[!0-9]*) continue ;; esac
+        px=$(( w * h ))
+        if [ "$px" -gt "$best_px" ]; then
+            best_px="$px"
+            conn="$(basename "$dir")"
+            best="${conn#card*-}"
+        fi
+    done
+    printf '%s' "$best"
+}
+
+GAME_MONITOR="$(detect_game_monitor)"
+if [ -z "$GAME_MONITOR" ]; then
+    # Kein angeschlossener Ausgang gefunden (headless?). Marke wird nicht
+    # gesetzt, der naechste Login versucht es erneut.
+    log "kein Monitor erkannt - Spiele-Regel uebersprungen"
+else
+    {
+        printf 'local gameMonitor = "%s"\n' "$GAME_MONITOR"
+        cat <<'LUA'
+
+hl.window_rule({ match = { content = "game" }, monitor = gameMonitor })
+
+local gameClasses = {
+    "^(cs2)$",
+    "^(steam_app_[0-9]+)$",       -- Steam/Proton-Titel
+    "^(gamescope)$",
+    "^(.*\\.exe)$",               -- Wine/Proton ohne eigene Klasse
+    "^(steam_proton)$",
+}
+for _, class in ipairs(gameClasses) do
+    hl.window_rule({ match = { class = class }, monitor = gameMonitor })
+end
+LUA
+    } | append_once "$CONF/hypr/custom/rules.lua" "-- >>> bazz-hypr: spiele-monitor"
+fi
 
 # --- 5. Python-venv ----------------------------------------------------------
 # Zuletzt, weil es mit Abstand am laengsten dauert (~330 MB) und die Session
