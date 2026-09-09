@@ -364,6 +364,38 @@ Repeated password prompts at login are a different, simpler thing:
 in the package list. Without it nobody unlocks the keyring at login and
 `gcr-prompter` asks on every access.
 
+### Everything looks warm / amber
+
+**Check the night light first, before touching the palette.** This is a
+screen-wide colour temperature shift applied by `hyprsunset` at the compositor
+level, and no palette setting can counteract it — you will be repainting widgets
+underneath an amber filter.
+
+```bash
+hyprctl hyprsunset temperature      # 6500 = neutral, lower = warmer
+jq -c '.light.night' ~/.config/illogical-impulse/config.json
+```
+
+The shipped default is `automatic: true` from **19:00 to 06:30** at **5000K**,
+which is distinctly warm. The giveaway is the timing: it appears on its own in
+the evening, and after a shell restart the desktop looks correct for a second or
+two and then warms up again as `services/Hyprsunset.qml` re-applies it.
+
+Turn it off, or retune the window:
+
+```bash
+jq '.light.night.automatic = false | .light.night.colorTemperature = 6500' \
+  ~/.config/illogical-impulse/config.json > /tmp/c.json \
+  && mv /tmp/c.json ~/.config/illogical-impulse/config.json
+hyprctl hyprsunset temperature 6500
+```
+
+Restart the shell afterwards — and edit that file **while the shell is stopped**,
+otherwise it writes its in-memory copy back over your change.
+
+Leaving `automatic: true` but setting `colorTemperature: 6500` also works, since
+6500K is the identity transform.
+
 ### The colour palette, and why a hue can get stuck
 
 Material You derives the whole palette from your wallpaper. Two knobs are
