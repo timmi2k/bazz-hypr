@@ -1,40 +1,39 @@
 #!/usr/bin/env bash
-# Session-Wrapper: erst Konfiguration sicherstellen, dann Hyprland starten.
+# Session wrapper: make sure the configuration exists, then start Hyprland.
 #
-# Der User-Dienst bazz-hypr-firstrun.service laeuft parallel zum Sitzungsstart.
-# Bei allerersten Login nach einem Rebase kann Hyprland ihn ueberholen und
-# ohne Konfiguration hochkommen. Dieser Wrapper macht das Seeding synchron
-# vorher - er ist idempotent und kostet danach nur Millisekunden.
+# The user unit bazz-hypr-firstrun.service runs in parallel with the session
+# start. On the very first login after a rebase Hyprland can overtake it and
+# come up without a configuration. This wrapper does the seeding synchronously
+# beforehand - it is idempotent and costs only milliseconds afterwards.
 set -uo pipefail
 
 if [ -x /usr/libexec/bazz-hypr-seed ]; then
-    /usr/libexec/bazz-hypr-seed || echo "bazz-hypr-seed fehlgeschlagen" >&2
+    /usr/libexec/bazz-hypr-seed || echo "bazz-hypr-seed failed" >&2
 fi
 
-# Sicherheitsnetz: Ohne hyprland.lua schreibt Hyprland sich beim Start selbst
-# eine Default-Konfiguration an diese Stelle ("No config file found; attempting
-# to generate") - der Desktop kommt dann ohne Keybinds, ohne Shell und ohne
-# Einstellungen hoch, und die generierte Datei bleibt danach liegen.
-# Genau das ist beim ersten echten Login passiert, weil das Seeding vorher
-# abgebrochen war. Deshalb hier die letzte Kontrolle, bevor Hyprland startet.
+# Safety net: without hyprland.lua, Hyprland writes itself a default
+# configuration to this location on startup ("No config file found; attempting
+# to generate") - the desktop then comes up without keybinds, without the shell
+# and without settings, and the generated file stays behind afterwards.
+# That is exactly what happened on the first real login, because the seeding
+# had aborted beforehand. Hence this last check before Hyprland starts.
 HYPRLAND_LUA="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.lua"
 UPSTREAM_LUA=/usr/share/bazz-hypr/dots-hyprland/dots/.config/hypr/hyprland.lua
 if [ ! -s "$HYPRLAND_LUA" ] && [ -f "$UPSTREAM_LUA" ]; then
-    echo "bazz-hypr-session: hyprland.lua fehlt, setze sie aus dem Image" >&2
+    echo "bazz-hypr-session: hyprland.lua missing, installing it from the image" >&2
     mkdir -p "$(dirname "$HYPRLAND_LUA")"
     install -m 0644 "$UPSTREAM_LUA" "$HYPRLAND_LUA"
 fi
 
-# graphical-session.target hochziehen, sobald der Compositor seinen Socket
-# angelegt hat.
+# Bring up graphical-session.target as soon as the compositor has created its
+# socket.
 #
-# Das steht zusaetzlich in custom/execs.lua - aber diese Datei wird nur einmal
-# geschrieben und nie wieder angefasst, damit eigene Aenderungen erhalten
-# bleiben. Bestehende Installationen bekaemen den Fix dort also nie. Hier
-# greift er unabhaengig davon.
+# This is also in custom/execs.lua - but that file is written once and never
+# touched again, so that local changes are preserved. Existing installations
+# would therefore never receive the fix there. Here it applies regardless.
 #
-# Ohne das Target bleiben alle xdg-desktop-portal-Backends tot und
-# Electron-Anwendungen (Discord, Chrome) haengen beim Start.
+# Without the target all xdg-desktop-portal backends stay dead and Electron
+# applications (Discord, Chrome) hang on startup.
 (
     for _ in $(seq 1 40); do
         if [ -n "$(ls -A "/run/user/$(id -u)/hypr" 2>/dev/null)" ]; then
@@ -45,18 +44,18 @@ fi
     systemctl --user start --no-block hyprland-session.target 2>/dev/null || true
 ) &
 
-# start-hyprland statt Hyprland direkt.
+# start-hyprland instead of Hyprland directly.
 #
-# Hyprland warnt beim Start sonst sichtbar: "Hyprland is being launched without
-# start-hyprland. This is highly advised against." start-hyprland ist ein
-# Watchdog-Prozess, der den Compositor ueberwacht und nach einem Absturz sauber
-# aufraeumt; das offizielle /usr/share/wayland-sessions/hyprland.desktop startet
-# ihn ebenfalls (Exec=/usr/bin/start-hyprland).
+# Otherwise Hyprland warns visibly on startup: "Hyprland is being launched
+# without start-hyprland. This is highly advised against." start-hyprland is a
+# watchdog process that supervises the compositor and cleans up properly after
+# a crash; the official /usr/share/wayland-sessions/hyprland.desktop starts it
+# as well (Exec=/usr/bin/start-hyprland).
 #
-# Argumente nach "--" reicht start-hyprland an Hyprland durch. Fallback auf das
-# nackte Binary, falls eine kuenftige Paketierung den Watchdog nicht mitbringt -
-# ein falscher Pfad hiesse sonst: Session startet gar nicht und der Benutzer
-# landet wortlos zurueck im Login-Manager.
+# Arguments after "--" are passed through by start-hyprland to Hyprland.
+# Fallback to the bare binary in case a future packaging does not ship the
+# watchdog - a wrong path would otherwise mean the session does not start at
+# all and the user lands back at the login manager without a word.
 if command -v start-hyprland >/dev/null 2>&1; then
     if [ "$#" -gt 0 ]; then
         exec "$(command -v start-hyprland)" -- "$@"
@@ -66,10 +65,10 @@ fi
 
 for bin in Hyprland hyprland; do
     if command -v "$bin" >/dev/null 2>&1; then
-        echo "bazz-hypr-session: start-hyprland fehlt, starte $bin direkt" >&2
+        echo "bazz-hypr-session: start-hyprland missing, starting $bin directly" >&2
         exec "$(command -v "$bin")" "$@"
     fi
 done
 
-echo "bazz-hypr-session: kein Hyprland-Binary gefunden" >&2
+echo "bazz-hypr-session: no Hyprland binary found" >&2
 exit 1

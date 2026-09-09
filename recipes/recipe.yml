@@ -2,52 +2,53 @@
 # yaml-language-server: $schema=https://schema.blue-build.org/recipe-v1.json
 version: 1
 name: bazz-hypr
-description: Bazzite (Nvidia, open kernel modules) mit Hyprland + illogical-impulse (Quickshell) als Standard-Session, end4-pC als zusaetzliche Shell. KDE Plasma bleibt als Fallback-Session und als Lieferant der von illogical-impulse benoetigten KDE-Dienste installiert.
+description: Bazzite (Nvidia, open kernel modules) with Hyprland + illogical-impulse (Quickshell) as the default session and end4-pC as an additional shell. KDE Plasma stays installed as a fallback session and as the supplier of the KDE services illogical-impulse depends on.
 base-image: ghcr.io/ublue-os/bazzite-nvidia-open
 image-version: stable
 
 modules:
   # ---------------------------------------------------------------------------
-  # 1. Pakete
+  # 1. Packages
   # ---------------------------------------------------------------------------
-  # Quelle der Paketliste: end-4/dots-hyprland -> sdata/dist-fedora/feddeps.toml
-  # (die offizielle, auf Fedora 44 getestete Liste des Upstream-Projekts).
+  # Source of the package list: end-4/dots-hyprland -> sdata/dist-fedora/feddeps.toml
+  # (the upstream project's official list, tested on Fedora 44).
   #
-  # Bewusst NICHT uebernommen aus feddeps.toml:
-  #   grub2-breeze-theme  - wuerde den Bootloader umthemen; auf einem atomaren
-  #                         System unnoetiges Risiko.
-  #   sddm-breeze         - wuerde den Login-Manager umthemen; Bazzite bringt
-  #                         eigenes SDDM-Theming mit.
-  # Abweichung von feddeps.toml bei quickshell: Upstream nimmt quickshell-git
-  # aus ririko66z/dots-hyprland. Dieser Build ist gegen Qt 6.10 gelinkt und auf
-  # Bazzite (Qt 6.11) nicht installierbar - der erste CI-Build ist daran
-  # gescheitert. Stattdessen errornointernet/quickshell, gegen Qt 6.11 gebaut.
+  # Deliberately NOT taken from feddeps.toml:
+  #   grub2-breeze-theme  - would re-theme the bootloader; unnecessary risk on
+  #                         an atomic system.
+  #   sddm-breeze         - would re-theme the login manager; Bazzite brings its
+  #                         own SDDM theming.
+  # Deviation from feddeps.toml for quickshell: upstream takes quickshell-git
+  # from ririko66z/dots-hyprland. That build is linked against Qt 6.10 and is
+  # not installable on Bazzite (Qt 6.11) - the first CI build failed on it.
+  # errornointernet/quickshell is used instead, built against Qt 6.11.
   # ---------------------------------------------------------------------------
   - type: dnf
     repos:
       copr:
-        # Hyprland 0.56.x (Lua-Config). solopasha/hyprland ist tot: dort steht
-        # nur 0.49.0 und nur fuer Fedora 41. Upstream feddeps.toml verweist
-        # selbst auf diesen Fork.
+        # Hyprland 0.56.x (Lua config). solopasha/hyprland is dead: it only has
+        # 0.49.0 and only for Fedora 41. Upstream's feddeps.toml points at this
+        # fork itself.
         - sdegler/hyprland
-        # Nur noch fuer die Qt-freien Pakete: microtex, breakpad, songrec,
-        # bibata-cursor-theme, breeze-plus-icon-theme und die Fonts.
+        # Only for the Qt-free packages now: microtex, breakpad, songrec,
+        # bibata-cursor-theme, breeze-plus-icon-theme and the fonts.
         #
-        # NICHT fuer quickshell-git und hyprland-qt-support: die Builds dort
-        # stammen vom 2025-12-18 und sind gegen Qt 6.10 gelinkt. Bazzite hat
-        # Qt 6.11 und sperrt das Downgrade, quickshell bindet Qt-Private-APIs
-        # versionsgenau. Der erste CI-Build ist genau daran gescheitert.
+        # NOT for quickshell-git and hyprland-qt-support: those builds are from
+        # 2025-12-18 and linked against Qt 6.10. Bazzite has Qt 6.11 and blocks
+        # the downgrade, and quickshell binds Qt private APIs version-exactly.
+        # The first CI build failed on precisely this.
         - ririko66z/dots-hyprland
-        # Liefert quickshell-git gegen Qt 6.11 gebaut und wird aktiv gepflegt
-        # (Build vom 2026-09-04 gegenueber 2025-12-18 bei ririko66z).
+        # Ships quickshell-git built against Qt 6.11 and is actively maintained
+        # (build from 2026-09-04 versus 2025-12-18 at ririko66z).
         - errornointernet/quickshell
         - deltacopy/darkly
-        # eza liegt inzwischen in Fedora 44 selbst - die von feddeps.toml
-        # genannte COPR alternateved/eza ist damit ueberfluessig.
+        # eza is in Fedora 44 itself by now - the COPR alternateved/eza named by
+        # feddeps.toml is therefore redundant.
         - atim/starship
     install:
-      # Einzelne Pakete koennen je nach Fedora-Release fehlen; der Build soll
-      # daran nicht scheitern. Was wirklich fehlt, steht danach im Build-Log.
+      # Individual packages can be missing depending on the Fedora release; the
+      # build should not fail on that. What is actually missing shows up in the
+      # build log afterwards.
       skip-unavailable: true
       packages:
         # --- Audio ---
@@ -56,19 +57,19 @@ modules:
         - wireplumber
         - libdbusmenu-gtk3-devel
         - playerctl
-        # --- Backlight / Sensoren ---
+        # --- Backlight / sensors ---
         - geoclue2
         - brightnessctl
         - ddcutil
-        # --- Basis-Werkzeuge ---
+        # --- Base tools ---
         - bc
         - cliphist
         - wget2
         - ripgrep
         - yq
-        # rsync braucht bazz-hypr-seed zur Laufzeit, git der Build-Schritt
-        # install-dots.sh. Beide sind in der Base sehr wahrscheinlich schon da -
-        # explizit gelistet, damit das nicht stillschweigend vorausgesetzt wird.
+        # bazz-hypr-seed needs rsync at runtime, the install-dots.sh build step
+        # needs git. Both are very likely present in the base already - listed
+        # explicitly so that this is not silently assumed.
         - rsync
         - git
         # --- Cursor / Fonts / Themes ---
@@ -97,23 +98,23 @@ modules:
         - hyprland-guiutils
         - hyprsunset
         - wl-clipboard
-        # Qt-Private-API-gebunden: explizit aus sdegler holen. ririko66z hat
-        # dasselbe Paket, aber gegen Qt 6.10 gebaut.
+        # Bound to Qt private APIs: take it explicitly from sdegler. ririko66z
+        # has the same package, but built against Qt 6.10.
         - repo: copr:copr.fedorainfracloud.org:sdegler:hyprland
           packages:
             - hyprland-qt-support
-        # --- KDE-Dienste, die illogical-impulse voraussetzt ---
-        # Fast alle sind in Bazzite Kinoite bereits vorhanden; hier explizit
-        # gelistet, damit das Image nicht kaputtgeht, falls die Base sie mal
-        # nicht mehr mitbringt. gnome-keyring fehlt in Bazzite tatsaechlich.
+        # --- KDE services that illogical-impulse requires ---
+        # Almost all of them are already present in Bazzite Kinoite; listed
+        # explicitly here so the image does not break should the base ever stop
+        # shipping them. gnome-keyring genuinely is missing from Bazzite.
         - bluedevil
         - gnome-keyring
-        # Das PAM-Modul steckt in einem eigenen Unterpaket. Ohne es fragt
-        # gnome-keyring nach jedem Login per gcr-prompter erneut nach dem
-        # Passwort - /usr/lib/pam.d/plasmalogin verweist zwar schon auf
-        # pam_gnome_keyring.so, aber mit fuehrendem "-", also "ueberspringen,
-        # wenn das Modul fehlt". Mit dem Paket entsperrt der Login-Manager den
-        # Schluesselbund automatisch mit dem Anmeldepasswort.
+        # The PAM module sits in a subpackage of its own. Without it,
+        # gnome-keyring asks for the password again after every login via
+        # gcr-prompter - /usr/lib/pam.d/plasmalogin does already reference
+        # pam_gnome_keyring.so, but with a leading "-", i.e. "skip if the module
+        # is missing". With the package the login manager unlocks the keyring
+        # automatically using the login password.
         - gnome-keyring-pam
         - plasma-nm
         - polkit-kde
@@ -121,22 +122,22 @@ modules:
         - plasma-systemsettings
         - plasma-systemmonitor
         - kdialog
-        # --- MicroTeX (LaTeX-Rendering in der Shell) ---
+        # --- MicroTeX (LaTeX rendering in the shell) ---
         - microtex
         # --- XDG-Portals ---
         - xdg-desktop-portal
         - xdg-desktop-portal-gtk
         - xdg-desktop-portal-kde
         - xdg-desktop-portal-hyprland
-        # --- Python-Toolchain fuer das venv ---
-        # Diese -devel-Pakete sind KEIN Build-Ueberbleibsel: pygobject, pycairo
-        # und dbus-python liefern keine Wheels und werden beim venv-Bau aus dem
-        # Quelltext kompiliert.
+        # --- Python toolchain for the venv ---
+        # These -devel packages are NOT a build leftover: pygobject, pycairo and
+        # dbus-python ship no wheels and are compiled from source when the venv
+        # is built.
         - uv
-        # Upstream nagelt Python 3.12 fest (Pillow baut auf neueren Versionen
-        # nicht, siehe python-pillow/Pillow#8089). Fedora 44 liefert 3.12.14 als
-        # eigenes Paket - damit haengt der venv-Bau nicht daran, ob uv sich
-        # selbst einen Interpreter herunterladen darf.
+        # Upstream pins Python 3.12 (Pillow does not build on newer versions,
+        # see python-pillow/Pillow#8089). Fedora 44 ships 3.12.14 as its own
+        # package - so the venv build does not depend on whether uv is allowed
+        # to download an interpreter itself.
         - python3.12
         - python3.12-devel
         - gcc
@@ -152,7 +153,7 @@ modules:
         - libsoup3-devel
         - libportal-gtk4
         - gobject-introspection-devel
-        # --- Quickshell-Laufzeit ---
+        # --- Quickshell runtime ---
         - qt6-qtdeclarative
         - qt6-qtbase
         - jemalloc
@@ -173,20 +174,19 @@ modules:
         - qt6-qttranslations
         - qt6-qtvirtualkeyboard
         - kf6-syntax-highlighting
-        # --- illogical-impulse-Kern ---
-        # quickshell-git bewusst OHNE repo:-Pinning.
+        # --- illogical-impulse core ---
+        # quickshell-git deliberately WITHOUT repo: pinning.
         #
-        # Ein "repo:"-Eintrag schraenkt die Aufloesung auf genau diese eine
-        # Repo ein. quickshell-git zieht cpptrace nach, das wiederum
-        # libdwarf.so.2 aus dem Fedora-Repo braucht - mit Pinning war das
-        # unsichtbar und der zweite CI-Build scheiterte an
-        # "nothing provides libdwarf.so.2".
+        # A "repo:" entry restricts resolution to exactly that one repo.
+        # quickshell-git pulls in cpptrace, which in turn needs libdwarf.so.2
+        # from the Fedora repo - with pinning that was invisible and the second
+        # CI build failed on "nothing provides libdwarf.so.2".
         #
-        # Ohne Pinning waehlt dnf die hoechste Version, und das ist
-        # errornointernet (0.3.1^856) vor ririko66z (0.2.1^713). Damit greift
-        # automatisch der gegen Qt 6.11 gebaute Kandidat.
+        # Without pinning dnf picks the highest version, and that is
+        # errornointernet (0.3.1^856) ahead of ririko66z (0.2.1^713). So the
+        # candidate built against Qt 6.11 is chosen automatically.
         - quickshell-git
-        # matugen liegt in Fedora 44 selbst.
+        # matugen is in Fedora 44 itself.
         - matugen
         # --- Screenshot / Screencapture ---
         - hyprshot
@@ -199,7 +199,7 @@ modules:
         - upower
         - wtype
         - ydotool
-        # --- Widgets / Hilfsprogramme ---
+        # --- Widgets / helper programs ---
         - fuzzel
         - ImageMagick
         - hypridle
@@ -213,7 +213,7 @@ modules:
         - mpvpaper
 
   # ---------------------------------------------------------------------------
-  # 2. Dotfiles + venv ins Image backen
+  # 2. Bake dotfiles + venv into the image
   # ---------------------------------------------------------------------------
   - type: script
     scripts:
@@ -221,7 +221,7 @@ modules:
       - build-venv.sh
 
   # ---------------------------------------------------------------------------
-  # 3. Systemdateien (udev, modprobe, systemd-Units)
+  # 3. System files (udev, modprobe, systemd units)
   # ---------------------------------------------------------------------------
   - type: files
     files:
@@ -229,13 +229,13 @@ modules:
         destination: /
 
   # ---------------------------------------------------------------------------
-  # 4. Dienste verdrahten
+  # 4. Wire up services
   # ---------------------------------------------------------------------------
   - type: script
     scripts:
       - enable-services.sh
 
   # ---------------------------------------------------------------------------
-  # 5. Signatur
+  # 5. Signing
   # ---------------------------------------------------------------------------
   - type: signing

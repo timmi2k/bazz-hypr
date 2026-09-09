@@ -1,8 +1,8 @@
-# ydotool braucht Schreibzugriff auf /dev/uinput. illogical-impulse nutzt
-# ydotool fuer die virtuelle Tastatur und diverse Keybinds.
+# ydotool needs write access to /dev/uinput. illogical-impulse uses ydotool
+# for the virtual keyboard and various keybinds.
 #
-# uaccess statt fester Gruppe: systemd-logind setzt damit eine ACL fuer den
-# gerade eingeloggten Sitzungsbenutzer. Das funktioniert ohne `usermod -aG`,
-# was auf einem atomaren System sonst ein manueller Nachbereitungsschritt waere.
-# Die Gruppenrechte bleiben als Fallback zusaetzlich stehen.
+# uaccess instead of a fixed group: with it systemd-logind sets an ACL for the
+# currently logged-in session user. That works without `usermod -aG`, which on
+# an atomic system would otherwise be a manual follow-up step. The group
+# permissions stay in addition, as a fallback.
 SUBSYSTEM=="misc", KERNEL=="uinput", TAG+="uaccess", OPTIONS+="static_node=uinput", MODE="0660", GROUP="input"
