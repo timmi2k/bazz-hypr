@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Legt illogical-impulse + end4-pC im HOME des aufrufenden Benutzers an.
+# Populates the calling user's HOME with illogical-impulse + end4-pC.
 #
-# Warum ueberhaupt noetig: /etc/skel greift nur bei NEU angelegten Benutzern.
-# Dieses Image landet per `rpm-ostree rebase` auf einer Maschine, auf der der
-# Account laengst existiert - dort wuerde skel nie ausgewertet.
+# Why this is needed at all: /etc/skel only applies to NEWLY created users. This
+# image arrives via `rpm-ostree rebase` on a machine where the account has long
+# existed - skel would never be evaluated there.
 #
-# Idempotent: laeuft bei jedem Login, macht aber nur etwas, wenn sich die
-# Image-Version geaendert hat oder Dateien fehlen.
+# Idempotent: runs on every login, but only does something when the image
+# version changed or files are missing.
 set -euo pipefail
 
 SHARE="/usr/share/bazz-hypr"
@@ -19,76 +19,100 @@ LOCK="$STATE/bazz-hypr/seed.lock"
 
 log() { printf '[bazz-hypr-seed] %s\n' "$*"; }
 
-test -d "$DOTS" || { log "FEHLER: $DOTS fehlt - kaputtes Image?"; exit 1; }
+test -d "$DOTS" || { log "ERROR: $DOTS missing - broken image?"; exit 1; }
 
 mkdir -p "$CONF" "$DATA" "$STATE/bazz-hypr"
 
-# --- 0. Sperre ---------------------------------------------------------------
-# Dieses Skript hat zwei Ausloeser: den Session-Wrapper und den User-Dienst
-# bazz-hypr-firstrun.service. Beide starten beim Login praktisch gleichzeitig.
+# --- 0. Lock -----------------------------------------------------------------
+# This script has two triggers: the session wrapper and the user unit
+# bazz-hypr-firstrun.service. Both start practically simultaneously on login.
 #
-# Ohne Sperre loeschte der zweite Lauf mit `rm -rf "$VENV.tmp"` das
-# Staging-Verzeichnis des ersten mitten im Kopieren; der erste brach daraufhin
-# per `set -e` ab, bevor er die Konfiguration schreiben konnte, und Hyprland
-# startete ohne hyprland.lua. Genau so ist der erste echte Login schiefgegangen.
+# Without a lock the second run deleted the first one's staging directory
+# mid-copy via `rm -rf "$VENV.tmp"`; the first then aborted through `set -e`
+# before it could write the configuration, and Hyprland started without
+# hyprland.lua. That is exactly how the first real login went wrong.
 exec 9>"$LOCK"
 if ! flock -w 300 9; then
-    log "FEHLER: konnte Sperre $LOCK nicht bekommen"
+    log "ERROR: could not acquire lock $LOCK"
     exit 1
 fi
 
 VERSION="$(cat "$SHARE/dots-version" 2>/dev/null || echo unknown)"
 STAMPED="$(cat "$STAMP" 2>/dev/null || true)"
 
-# --- 1. Upstream-eigene Konfiguration ----------------------------------------
-# BEWUSST VOR dem venv: Hyprland startet direkt nach diesem Skript und braucht
-# hyprland.lua sofort. Das venv-Kopieren dauert deutlich laenger und ist fuer
-# den Start der Session nicht kritisch.
+# --- 1. Upstream's own configuration -----------------------------------------
+# DELIBERATELY BEFORE the venv: Hyprland starts right after this script and
+# needs hyprland.lua immediately. Copying the venv takes considerably longer and
+# is not critical for starting the session.
 #
-# Diese Pfade gehoeren illogical-impulse und werden bei jedem Image-Update
-# ueberschrieben - genauso macht es der Upstream-Installer.
+# These paths belong to illogical-impulse and are overwritten on every image
+# update - the upstream installer does the same.
 if [ "$VERSION" != "$STAMPED" ]; then
-    log "synchronisiere Upstream-Konfiguration (Version $VERSION)"
+    log "syncing upstream configuration (version $VERSION)"
     mkdir -p "$CONF/quickshell" "$CONF/hypr"
+
+    # shellOverrides/ belongs to the shell's settings GUI, not to upstream:
+    # rounding, blur, gaps, layout, keyboard layout and touchpad values land
+    # there as soon as the user touches that dialog once. The rsync below runs
+    # with --delete and would discard exactly that.
+    #
+    # So: save it first, put it back afterwards. The order matters - the rsync
+    # runs in between so that genuinely new upstream files still arrive, and the
+    # user's own files are laid back on top of them.
+    OVERRIDES="$CONF/hypr/hyprland/shellOverrides"
+    OVERRIDES_BAK=""
+    if [ -d "$OVERRIDES" ]; then
+        OVERRIDES_BAK="$(mktemp -d "$STATE/bazz-hypr/shellOverrides.XXXXXX")"
+        cp -a "$OVERRIDES/." "$OVERRIDES_BAK/"
+    fi
+
     rsync -a --delete "$DOTS/.config/quickshell/ii/" "$CONF/quickshell/ii/"
     rsync -a --delete "$DOTS/.config/hypr/hyprland/" "$CONF/hypr/hyprland/"
     rsync -a           "$DOTS/.config/matugen/"       "$CONF/matugen/"
+
+    if [ -n "$OVERRIDES_BAK" ]; then
+        mkdir -p "$OVERRIDES"
+        cp -a "$OVERRIDES_BAK/." "$OVERRIDES/"
+        rm -rf "$OVERRIDES_BAK"
+        log "kept shellOverrides/ (settings made in the shell GUI)"
+    fi
+
     mkdir -p "$DATA/icons"
     cp -f "$DOTS/.local/share/icons/illogical-impulse.svg" "$DATA/icons/" 2>/dev/null || true
 fi
 
-# hyprland.lua gehoert ebenfalls dem Upstream und wird immer erneuert.
+# hyprland.lua also belongs to upstream and is always refreshed.
 #
-# Wichtig: Wenn Hyprland startet und die Datei fehlt, schreibt es sich selbst
-# eine Default-Konfiguration an genau diese Stelle ("No config file found;
-# attempting to generate"). Wuerde hier nur bei fehlender Datei kopiert, bliebe
-# diese generierte Default-Config dauerhaft stehen - der Desktop kaeme bei
-# jedem Login ohne Keybinds, ohne Shell-Autostart und ohne Einstellungen hoch.
+# Important: if Hyprland starts and the file is missing, it writes itself a
+# default configuration to exactly this location ("No config file found;
+# attempting to generate"). If we only copied when the file was absent, that
+# generated default would stay forever - the desktop would come up on every
+# login without keybinds, without the shell autostart and without settings.
 if ! cmp -s "$DOTS/.config/hypr/hyprland.lua" "$CONF/hypr/hyprland.lua"; then
     if [ -f "$CONF/hypr/hyprland.lua" ]; then
         cp -f "$CONF/hypr/hyprland.lua" "$CONF/hypr/hyprland.lua.bak"
-        log "hyprland.lua weicht ab - alte Fassung als hyprland.lua.bak gesichert"
+        log "hyprland.lua differs - previous version saved as hyprland.lua.bak"
     fi
     install -m 0644 "$DOTS/.config/hypr/hyprland.lua" "$CONF/hypr/hyprland.lua"
-    log "hyprland.lua aus dem Image gesetzt"
+    log "hyprland.lua installed from the image"
 fi
 
-# --- 2. Benutzer-eigene Konfiguration ----------------------------------------
-# Wird nur angelegt, wenn nicht vorhanden. Nach einem Rebase hat der Benutzer
-# ein eingerichtetes KDE - dessen kitty/fish/kdeglobals nicht ueberbuegeln.
+# --- 2. User-owned configuration ---------------------------------------------
+# Only created when absent. After a rebase the user has a configured KDE - do
+# not steamroll its kitty/fish/kdeglobals.
 seed_if_missing() {
     local src="$1" dst="$2"
     [ -e "$dst" ] && return 0
     mkdir -p "$(dirname "$dst")"
     cp -a "$src" "$dst"
     chmod -R u+w "$dst"
-    log "angelegt: ${dst#"$HOME"/}"
+    log "created: ${dst#"$HOME"/}"
 }
 
 for entry in "$DOTS"/.config/*; do
     name="$(basename "$entry")"
     case "$name" in
-        quickshell|hypr|matugen) continue ;;   # oben behandelt
+        quickshell|hypr|matugen) continue ;;   # handled above
     esac
     seed_if_missing "$entry" "$CONF/$name"
 done
@@ -101,23 +125,23 @@ seed_if_missing "$DOTS/.config/hypr/custom"   "$CONF/hypr/custom"
 seed_if_missing "$DOTS/.local/share/konsole"  "$DATA/konsole"
 
 # --- 3. end4-pC --------------------------------------------------------------
-# Reiner Quickshell-Config-Ordner (GPL-3.0), setzt illogical-impulse voraus.
-# Als echter git-Checkout kopiert, damit `git pull` darin funktioniert.
+# Pure Quickshell config directory (GPL-3.0), requires illogical-impulse.
+# Copied as a real git checkout so that `git pull` works inside it.
 if [ ! -d "$CONF/quickshell/end4-pC" ] && [ -d "$SHARE/end4-pC" ]; then
-    log "installiere end4-pC nach $CONF/quickshell/end4-pC"
+    log "installing end4-pC to $CONF/quickshell/end4-pC"
     mkdir -p "$CONF/quickshell"
     cp -a "$SHARE/end4-pC" "$CONF/quickshell/end4-pC"
     chmod -R u+w "$CONF/quickshell/end4-pC"
 fi
 
-# --- 4. Unsere Anpassungen in hypr/custom/ -----------------------------------
-# custom/ wird von illogical-impulse-Updates nie angefasst - der richtige Ort
-# fuer Nvidia-Variablen, Tastaturlayout und die Shell-Auswahl.
+# --- 4. Our own adjustments in hypr/custom/ ----------------------------------
+# custom/ is never touched by illogical-impulse updates - the right place for
+# Nvidia variables, keyboard layout and the shell selection.
 #
-# ACHTUNG bei der Leer-Pruefung: Die Vorlagen des Upstream sind nicht 0 Byte
-# gross, sondern enthalten ein einzelnes Newline. Ein Test auf `[ -s ]` haelt
-# sie faelschlich fuer befuellt und ueberspringt das Schreiben - genau daran
-# ist der erste Anlauf gescheitert. Deshalb wird auf "nur Leerraum" geprueft.
+# CAREFUL with the emptiness check: upstream's templates are not 0 bytes, they
+# contain a single newline. A test for `[ -s ]` wrongly considers them filled
+# and skips writing - that is exactly what the first attempt failed on. Hence
+# the check for "whitespace only".
 is_effectively_empty() {
     [ ! -e "$1" ] && return 0
     [ -z "$(tr -d '[:space:]' < "$1" 2>/dev/null)" ]
@@ -126,99 +150,99 @@ is_effectively_empty() {
 write_once() {
     local path="$1"
     if ! is_effectively_empty "$path"; then
-        cat > /dev/null   # Heredoc leerlesen
+        cat > /dev/null   # drain the heredoc
         return 0
     fi
     mkdir -p "$(dirname "$path")"
     cat > "$path"
-    log "geschrieben: ${path#"$HOME"/}"
+    log "written: ${path#"$HOME"/}"
 }
 
-# Haengt einen markierten Block an, statt die ganze Datei zu schreiben.
+# Appends a marked block instead of writing the whole file.
 #
-# Warum zusaetzlich zu write_once: write_once ruehrt eine Datei nur an, solange
-# sie leer ist. custom/keybinds.lua bringt der Upstream aber bereits mit einer
-# Zeile mit ("Edit user keybinds"), womit write_once sie immer uebersprungen
-# haette - der Block waere auf einer frischen Installation nie gelandet.
+# Why in addition to write_once: write_once only touches a file while it is
+# empty. But upstream ships custom/keybinds.lua with one line already in it
+# ("Edit user keybinds"), so write_once would always skip it - the block would
+# never have landed on a fresh installation.
 #
-# Die Marke bleibt als Kommentar stehen und ist die einzige Erkennung: ein
-# zweiter Lauf findet sie und haengt nichts nach. Wer den Block nicht will,
-# loescht ihn samt Marke -- dann kommt er beim naechsten Login wieder; wer ihn
-# anpassen will, laesst die Marke stehen und aendert darunter frei herum.
+# The marker stays in the file as a comment and is the only detection: a second
+# run finds it and appends nothing. To get rid of the block, delete it together
+# with its marker - it comes back on the next login; to adjust it, leave the
+# marker in place and edit freely below it.
 append_once() {
     local path="$1" marker="$2"
-    # -e ist Pflicht, nicht Kosmetik: die Marke beginnt mit "--", ohne -e haelt
-    # grep sie fuer eine Optionsliste, bricht ab und meldet "nicht gefunden" -
-    # der Block waere dann bei jedem Login erneut angehaengt worden.
+    # -e is mandatory, not cosmetic: the marker starts with "--". Without -e
+    # grep takes it for an option list, aborts and thereby reports "not found" -
+    # the block would have been appended again on EVERY login.
     if [ -e "$path" ] && grep -qFe "$marker" "$path" 2>/dev/null; then
-        cat > /dev/null   # Heredoc leerlesen
+        cat > /dev/null   # drain the heredoc
         return 0
     fi
     mkdir -p "$(dirname "$path")"
     printf '\n%s\n' "$marker" >> "$path"
     cat >> "$path"
-    log "ergaenzt: ${path#"$HOME"/}"
+    log "extended: ${path#"$HOME"/}"
 }
 
 write_once "$CONF/hypr/custom/env.lua" <<'LUA'
--- Nvidia. Stand wiki.hypr.land/Nvidia/ (Abruf 2026-09-08).
--- Nur noch diese beiden Variablen werden empfohlen. GBM_BACKEND=nvidia-drm
--- steht dort NICHT mehr - es hat mehr Probleme verursacht (u.a. in Firefox)
--- als geloest, deshalb hier bewusst weggelassen.
+-- Nvidia. As of wiki.hypr.land/Nvidia/ (retrieved 2026-09-08).
+-- Only these two variables are still recommended. GBM_BACKEND=nvidia-drm is
+-- NOT listed there any more - it caused more problems (among others in
+-- Firefox) than it solved, so it is deliberately left out here.
 hl.env("LIBVA_DRIVER_NAME", "nvidia")
 hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
 
--- Hardware-Videodecoding ueber NVDEC statt ueber den VDPAU-Umweg.
+-- Hardware video decoding through NVDEC instead of the VDPAU detour.
 hl.env("NVD_BACKEND", "direct")
 
--- Bei mehreren GPUs hier die gewuenschte Karte festnageln, z.B.:
+-- With multiple GPUs, pin the desired card here, e.g.:
 -- hl.env("AQ_DRM_DEVICES", "/dev/dri/card1:/dev/dri/card0")
 LUA
 
 write_once "$CONF/hypr/custom/variables.lua" <<'LUA'
--- Welcher Ordner unter ~/.config/quickshell/ die Shell stellt.
--- "ii"       = illogical-impulse im Original
--- "end4-pC"  = der Fork von pctrade (in diesem Image mitgeliefert)
+-- Which directory under ~/.config/quickshell/ provides the shell.
+-- "ii"       = illogical-impulse as shipped
+-- "end4-pC"  = pctrade's fork (bundled with this image)
 hl.env("qsConfig", "end4-pC")
 LUA
 
 write_once "$CONF/hypr/custom/execs.lua" <<'LUA'
--- Auf Fedora startet der polkit-Agent nicht von allein. Ohne ihn erscheint bei
--- jeder Rechteabfrage gar kein Dialog.
+-- On Fedora the polkit agent does not start on its own. Without it no dialog
+-- appears at all when something asks for privileges.
 --
--- Der Upstream-Installer haengt die Zeile dafuer an hypr/hyprland/execs.conf
--- an - eine Datei, die seit der Lua-Umstellung nicht mehr gelesen wird.
--- gnome-keyring-daemon wird hier bewusst NICHT gestartet, das macht
--- hyprland/execs.lua bereits selbst.
+-- The upstream installer appends the line for this to hypr/hyprland/execs.conf
+-- - a file that is no longer read since the switch to Lua.
+-- gnome-keyring-daemon is deliberately NOT started here, hyprland/execs.lua
+-- already does that itself.
 hl.on("hyprland.start", function()
     hl.exec_cmd("/usr/libexec/kf6/polkit-kde-authentication-agent-1")
 
-    -- graphical-session.target hochziehen. Hyprland wird direkt vom
-    -- Login-Manager gestartet (nicht ueber uwsm), deshalb aktiviert es sonst
-    -- niemand - und ohne dieses Target bleiben alle xdg-desktop-portal-
-    -- Backends tot. Electron-Anwendungen wie Discord und Chrome haengen dann
-    -- beim Start. Das Target selbst weigert sich, direkt gestartet zu werden;
-    -- hyprland-session.target zieht es per BindsTo herein.
-    -- --no-block, weil systemctl sonst auf das Settling wartet und blockiert.
+    -- Bring up graphical-session.target. Hyprland is started directly by the
+    -- login manager (not through uwsm), so otherwise nobody activates it - and
+    -- without this target all xdg-desktop-portal backends stay dead. Electron
+    -- applications such as Discord and Chrome then hang on startup. The target
+    -- itself refuses to be started directly; hyprland-session.target pulls it
+    -- in via BindsTo.
+    -- --no-block, because systemctl would otherwise wait for settling and block.
     hl.exec_cmd("systemctl --user start --no-block hyprland-session.target")
 end)
 LUA
 
-# Tastaturlayout aus der Systemeinstellung uebernehmen. illogical-impulse setzt
-# in hyprland/general.lua fest kb_layout = "us"; custom/general.lua wird danach
-# geladen und ueberschreibt das.
+# Take the keyboard layout from the system setting. illogical-impulse hardcodes
+# kb_layout = "us" in hyprland/general.lua; custom/general.lua is loaded
+# afterwards and overrides it.
 #
-# Layout und Variante muessen zusammenpassen - "us" kennt z.B. keine Variante
-# "nodeadkeys", und Hyprland blendet dann eine rote Fehlermeldung ein. Deshalb
-# werden beide Werte gemeinsam aus localectl uebernommen oder gar nicht.
+# Layout and variant have to match - "us" for instance does not know the variant
+# "nodeadkeys", and Hyprland then shows a red error message. That is why both
+# values are taken from localectl together, or not at all.
 KB_LAYOUT="$(localectl status 2>/dev/null | sed -n 's/^ *X11 Layout: *//p' | head -1)"
 KB_VARIANT="$(localectl status 2>/dev/null | sed -n 's/^ *X11 Variant: *//p' | head -1)"
 [ -z "$KB_LAYOUT" ] && KB_LAYOUT="us" && KB_VARIANT=""
 
 write_once "$CONF/hypr/custom/general.lua" <<LUA
--- Tastaturlayout, uebernommen aus der Systemeinstellung (localectl).
--- illogical-impulse setzt in hyprland/general.lua fest kb_layout = "us";
--- diese Datei wird danach geladen und ueberschreibt das.
+-- Keyboard layout, taken from the system setting (localectl).
+-- illogical-impulse hardcodes kb_layout = "us" in hyprland/general.lua;
+-- this file is loaded afterwards and overrides it.
 hl.config({
     input = {
         kb_layout = "${KB_LAYOUT}",
@@ -227,15 +251,14 @@ hl.config({
 })
 LUA
 
-# Monitor-Keybinds. Rein richtungsbasiert (l/r), damit der Block auf jeder
-# Maschine passt, egal wie die Ausgaenge heissen.
+# Monitor keybinds. Purely direction based (l/r) so that the block fits on any
+# machine, no matter what the outputs are called.
 append_once "$CONF/hypr/custom/keybinds.lua" "-- >>> bazz-hypr: monitor-keybinds" <<'LUA'
--- Fenster bzw. ganzen Workspace auf den Nachbarmonitor schieben.
+-- Move a window, or a whole workspace, to the neighbouring monitor.
 --
--- Fuer Vollbild-Spiele die SHIFT-Variante nehmen: einen ganzen Workspace zu
--- verschieben laesst den Fullscreen-State intakt, waehrend ein einzeln
--- verschobenes Fenster zurueckspringt, sobald das Spiel den Fullscreen neu
--- greift.
+-- For fullscreen games take the SHIFT variant: moving a whole workspace leaves
+-- the fullscreen state intact, whereas a window moved on its own jumps back as
+-- soon as the game re-grabs fullscreen.
 for i = 1, 2 do
     local arrowkey = { "Left", "Right" }
     local mondir = { "l", "r" }
@@ -246,12 +269,12 @@ for i = 1, 2 do
 end
 LUA
 
-# Spiele-Monitor bestimmen: der groesste angeschlossene Schirm.
+# Determine the gaming monitor: the largest connected screen.
 #
-# Die DRM-Connector-Namen unter /sys/class/drm (DP-3, HDMI-A-1, ...) sind exakt
-# die, die Hyprland selbst verwendet - sie taugen deshalb direkt als Wert fuer
-# die Fensterregel. Erste Zeile von `modes` ist die hoechste Aufloesung des
-# Anschlusses. So muss hier kein Ausgangsname fest verdrahtet werden.
+# The DRM connector names under /sys/class/drm (DP-3, HDMI-A-1, ...) are exactly
+# the ones Hyprland itself uses - so they can be dropped straight into the
+# window rule. The first line of `modes` is the highest resolution of that
+# connector. This way no output name has to be hardcoded here.
 detect_game_monitor() {
     local best="" best_px=0 dir conn mode w h px
     for dir in /sys/class/drm/card*-*; do
@@ -273,9 +296,9 @@ detect_game_monitor() {
 
 GAME_MONITOR="$(detect_game_monitor)"
 if [ -z "$GAME_MONITOR" ]; then
-    # Kein angeschlossener Ausgang gefunden (headless?). Marke wird nicht
-    # gesetzt, der naechste Login versucht es erneut.
-    log "kein Monitor erkannt - Spiele-Regel uebersprungen"
+    # No connected output found (headless?). The marker is not written, so the
+    # next login tries again.
+    log "no monitor detected - game rule skipped"
 else
     {
         printf 'local gameMonitor = "%s"\n' "$GAME_MONITOR"
@@ -285,41 +308,41 @@ hl.window_rule({ match = { content = "game" }, monitor = gameMonitor })
 
 local gameClasses = {
     "^(cs2)$",
-    "^(steam_app_[0-9]+)$",       -- Steam/Proton-Titel
+    "^(steam_app_[0-9]+)$",       -- Steam/Proton titles
     "^(gamescope)$",
-    "^(.*\\.exe)$",               -- Wine/Proton ohne eigene Klasse
+    "^(.*\\.exe)$",               -- Wine/Proton without a class of its own
     "^(steam_proton)$",
 }
 for _, class in ipairs(gameClasses) do
     hl.window_rule({ match = { class = class }, monitor = gameMonitor })
 end
 LUA
-    } | append_once "$CONF/hypr/custom/rules.lua" "-- >>> bazz-hypr: spiele-monitor"
+    } | append_once "$CONF/hypr/custom/rules.lua" "-- >>> bazz-hypr: game-monitor"
 fi
 
-# --- 5. Python-venv ----------------------------------------------------------
-# Zuletzt, weil es mit Abstand am laengsten dauert (~330 MB) und die Session
-# ohne es startet. Die Quickshell-Skripte erwarten es unter genau diesem Pfad
-# (hyprland/env.lua setzt ILLOGICAL_IMPULSE_VIRTUAL_ENV darauf).
-# Kopie statt Symlink nach /usr, damit der Benutzer selbst Pakete nachlegen kann.
+# --- 5. Python venv ----------------------------------------------------------
+# Last, because it takes by far the longest (~330 MB) and the session starts
+# without it. The Quickshell scripts expect it at exactly this path
+# (hyprland/env.lua points ILLOGICAL_IMPULSE_VIRTUAL_ENV at it).
+# A copy instead of a symlink into /usr, so the user can add packages.
 VENV="$STATE/quickshell/.venv"
 if [ ! -x "$VENV/bin/python" ] && [ -d "$SHARE/venv" ]; then
-    log "kopiere Python-venv nach $VENV (dauert einen Moment)"
+    log "copying Python venv to $VENV (takes a moment)"
     mkdir -p "$STATE/quickshell"
     rm -rf "$VENV" "$VENV.tmp"
     cp -a "$SHARE/venv" "$VENV.tmp"
     chmod -R u+w "$VENV.tmp"
-    # Erst nach vollstaendiger Kopie umbenennen: ein abgebrochener Lauf
-    # hinterlaesst dann kein halbes venv, das beim naechsten Mal als fertig gilt.
+    # Only rename after a complete copy: an aborted run then leaves no half
+    # venv behind that would count as finished next time.
     if [ -x "$VENV.tmp/bin/python" ]; then
         mv "$VENV.tmp" "$VENV"
-        log "venv bereit ($("$VENV/bin/python" -V 2>&1))"
+        log "venv ready ($("$VENV/bin/python" -V 2>&1))"
     else
-        log "FEHLER: venv-Kopie unvollstaendig, verwerfe sie"
+        log "ERROR: venv copy incomplete, discarding it"
         rm -rf "$VENV.tmp"
     fi
 fi
 
-# --- 6. Stempel --------------------------------------------------------------
+# --- 6. Stamp ----------------------------------------------------------------
 printf '%s\n' "$VERSION" > "$STAMP"
-log "fertig (Version $VERSION)"
+log "done (version $VERSION)"
