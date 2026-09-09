@@ -444,6 +444,51 @@ Red tones left in the generated theme (`#93000a`, `#ffb4ab`, `#ffdad6`) are
 Material You's **error** colours. They are red in every scheme by design and
 only appear on error states.
 
+### Exempting one app from the inactive dimming
+
+`decoration.inactive_opacity` (0.9 here, set in
+`hyprland/shellOverrides/main.lua`) dims every unfocused window — including a
+video playing on a second screen, which is usually the reason you want an
+exception.
+
+The obvious approach does not work:
+
+```lua
+hl.window_rule({ match = { class = "^(discord)$" }, opacity = 1.0 })   -- ignored
+```
+
+`opacity` is accepted as a window-rule field — other spellings such as `alpha`
+or `inactive_opacity` are rejected with "unknown field", so it looks correct —
+but in Hyprland 0.56.2's Lua layer it has no effect, with the class matching
+exactly and after a full reload and a window restart.
+
+A content-type matcher is no help either. Hyprland exposes `contentType` per
+window and a `content = "video"` matcher, but Electron apps do not implement the
+protocol: Discord and Chrome both report `none`.
+
+What does work is `set_prop` on the live window, re-applied whenever the window
+opens. In `~/.config/hypr/custom/execs.lua`:
+
+```lua
+hl.on("window.open", function(win)
+    if win.class == "discord" then
+        hl.dispatch(hl.dsp.window.set_prop({
+            window = "address:" .. win.address, prop = "opaque", value = 1
+        }))
+    end
+end)
+```
+
+The `window.open` handler receives an `HL.Window` with `.class`, `.address` and
+`.title`. Valid prop names are `opacity` and `opaque`; `alpha` and
+`alphaInactive` are rejected in this build. `value` is required and wants a
+number — `true` is refused.
+
+**A debugging note if you ever measure this with screenshots:** `hyprctl dispatch`
+takes *Lua* in this build, so `hyprctl dispatch focuswindow address:0x…` fails
+silently and the window never gets focused. A focused-vs-unfocused comparison
+built on it compares two unfocused frames and always reports "no difference".
+
 ### kded6 segfaults
 
 `kded6` is KDE's background daemon. Under Hyprland it can crash on shell
