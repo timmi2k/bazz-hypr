@@ -44,6 +44,20 @@ test -f "$SHARE/dots-hyprland/sdata/uv/requirements.txt" \
 test -f "$SHARE/end4-pC/shell.qml" \
     || { echo "ERROR: end4-pC/shell.qml missing - end4-pC structure changed"; exit 1; }
 
+# matugen comes from Fedora, which ships 3.x. switchwall.sh in both shells still
+# passes --source-color-index 0, a 2.x flag that 3.x rejects: matugen exits
+# before writing colors.json, so no scheme or accent change reaches the shell
+# any more. Drop the flag, and fail the build if the call ever moves somewhere
+# this sed does not reach.
+for f in "$SHARE/dots-hyprland/dots/.config/quickshell/ii/scripts/colors/switchwall.sh" \
+         "$SHARE/end4-pC/scripts/colors/switchwall.sh"; do
+    sed -i 's/matugen_args=(--source-color-index 0)/matugen_args=()/' "$f"
+    if grep -q -- '--source-color-index' "$f"; then
+        echo "ERROR: $f still passes --source-color-index to matugen"
+        exit 1
+    fi
+done
+
 # Version stamp for the first-boot service: when it changes, bazz-hypr-seed
 # re-syncs the upstream configuration in HOME.
 printf '%s\n' "${DOTS_SHA}+${PC_SHA}" > "$SHARE/dots-version"
