@@ -243,10 +243,17 @@ write_once "$CONF/hypr/custom/general.lua" <<LUA
 -- Keyboard layout, taken from the system setting (localectl).
 -- illogical-impulse hardcodes kb_layout = "us" in hyprland/general.lua;
 -- this file is loaded afterwards and overrides it.
+--
+-- accel_profile = "flat" switches off pointer acceleration. Neither upstream
+-- nor the shell's settings GUI sets this, so libinput's default profile
+-- "adaptive" applies - the pointer speeds up the faster you move it, which on
+-- a normal mouse just feels like it is too fast. sensitivity stays at 0; the
+-- raw speed is fine, only the acceleration curve is not.
 hl.config({
     input = {
         kb_layout = "${KB_LAYOUT}",
-        kb_variant = "${KB_VARIANT}"
+        kb_variant = "${KB_VARIANT}",
+        accel_profile = "flat"
     }
 })
 LUA

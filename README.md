@@ -364,6 +364,30 @@ Repeated password prompts at login are a different, simpler thing:
 in the package list. Without it nobody unlocks the keyring at login and
 `gcr-prompter` asks on every access.
 
+### The mouse accelerates, or feels too fast
+
+libinput's default pointer profile is `adaptive`: the faster the mouse moves,
+the further the pointer travels per millimetre. Neither Hyprland's own defaults
+nor the shell's settings GUI touch that, so on a desktop mouse it simply feels
+wrong. `custom/general.lua` therefore sets `accel_profile = "flat"`, which
+switches the curve off and leaves the raw speed alone.
+
+```bash
+hyprctl getoption input:accel_profile
+```
+
+`str: flat` is the fixed state. If it says `adaptive`, the file was written
+before this line existed — the seed script only writes `custom/general.lua`
+while it is empty, so add it by hand:
+
+```lua
+hl.config({ input = { accel_profile = "flat" } })
+```
+
+Raw speed is the separate `sensitivity` knob and stays at `0`. If it ever ends
+up in `shellOverrides/main.lua` through the settings GUI, that wins over
+`custom/` — as always with the load order.
+
 ### Everything looks warm / amber
 
 **Check the night light first, before touching the palette.** This is a
