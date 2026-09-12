@@ -114,10 +114,34 @@ they match what is actually bound rather than what was intended.
 
 | Bind | Action |
 |---|---|
-| `SUPER+1…0` | Focus workspace 1–10 |
+| `SUPER+1…0` | Focus workspace 1–10 **of the current monitor's group** |
 | `SUPER+CTRL+←/→` | Focus workspace left/right |
 | `SUPER+S` | Toggle scratchpad |
 | `SUPER+Tab` | Overview |
+
+Workspaces are bound to monitors in groups of ten, largest screen first: the big
+monitor owns 1–10, the second one 11–20. The number keys are **group relative**,
+so `SUPER+3` is workspace 3 on the big screen and workspace 13 on the second —
+same key, the screen you are on decides. That is the shell's own scheme
+(`workspaceGroupSize = 10` in `hyprland/variables.lua`); the rules only pin each
+group to a monitor.
+
+Two things follow from it:
+
+* **The session starts on the largest monitor**, because workspace 1 is that
+  monitor's default. Without rules Hyprland hands workspaces out in connector
+  order, so workspace 1 lands on whichever output the GPU enumerates first —
+  which is how workspace 1 ended up on the small screen and workspace 2 on the
+  big one.
+* **Hyprland has no "primary monitor" setting.** Workspace rules are the
+  mechanism for it; there is nothing else to set.
+
+The rules are generated per machine into `~/.config/hypr/custom/rules.lua` from
+the outputs that are actually connected, so no connector name is hardcoded in
+the image. After a monitor change, delete the
+`-- >>> bazz-hypr: workspace-monitors` block together with its marker and log in
+again — the seed script rebuilds it. Rules apply when a workspace is *created*,
+so workspaces that already exist stay where they are until the next session.
 
 ### Monitors
 
@@ -236,6 +260,33 @@ move on its own — that is what the monitor keybinds are for.
 Both this and the monitor keybinds live in `~/.config/hypr/custom/`, written by
 the seed script as marked blocks. Edit them freely; see
 [append_once](#append_once-instead-of-write_once) for how they are recognised.
+
+### When a game opens on the wrong screen anyway
+
+The class regex is the fallback for everything that does not report a content
+type, and a **native Linux build** is where it gets thin: those never get a
+`steam_app_<id>` class, the engine sets one of its own. Tabletop Simulator is
+Unity, which derives the class from the product name — that is what the
+`^([Tt]abletop ?[Ss]imulator.*)$` entry in the list is for.
+
+To find the class of any window, watch Hyprland's event socket and then start
+the program:
+
+```bash
+socat -U - "UNIX-CONNECT:$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock" \
+  | grep --line-buffered openwindow
+```
+
+Every line is `openwindow>>address,workspace,class,title`. For a window that is
+already open, `hyprctl clients` shows the same fields. Add the class to
+`gameClasses` in `~/.config/hypr/custom/rules.lua`, then `hyprctl reload`.
+
+Worth getting right, because **moving a running game is not a fix**: engines pick
+their render size when they start and do not re-layout when the surface lands on
+a 1080p screen after starting on 1440p, so the picture ends up unscaled or
+cropped. Opening it on the right monitor is the only clean way — which is also
+why workspace 1 now lives on the big screen: a game launched from Steam inherits
+the workspace it was started from.
 
 ---
 
@@ -390,7 +441,16 @@ registers it a **second** time, and the key then fires the command twice. A
 `hyprctl reload` clears that up.
 
 `hyprctl keyword` is gone with the Lua parser — it answers
-*"keyword can't work with non-legacy parsers. Use eval."*
+*"keyword can't work with non-legacy parsers. Use eval."* `hyprctl dispatch`
+takes Lua as well now:
+
+```bash
+hyprctl dispatch 'hl.dsp.focus({ workspace = 7 })'   # new
+hyprctl dispatch workspace 7                         # error: ')' expected near '7'
+```
+
+The argument is wrapped as `hl.dispatch(<your text>)`, so pass a dispatcher from
+`hl.dsp`, exactly as in a keybind.
 
 ### Which GUI writes which file
 

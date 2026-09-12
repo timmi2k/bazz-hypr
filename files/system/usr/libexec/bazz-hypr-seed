@@ -311,14 +311,17 @@ hl.bind("SUPER + Space", hl.dsp.exec_cmd("pkill nwg-drawer || pkill fuzzel || nw
     { description = "App: Application grid" })
 LUA
 
-# Determine the gaming monitor: the largest connected screen.
+# All connected outputs, largest first.
 #
 # The DRM connector names under /sys/class/drm (DP-3, HDMI-A-1, ...) are exactly
-# the ones Hyprland itself uses - so they can be dropped straight into the
-# window rule. The first line of `modes` is the highest resolution of that
-# connector. This way no output name has to be hardcoded here.
-detect_game_monitor() {
-    local best="" best_px=0 dir conn mode w h px
+# the ones Hyprland itself uses - so they can be dropped straight into a rule.
+# The first line of `modes` is the highest resolution of that connector. This
+# way no output name has to be hardcoded here.
+#
+# Two blocks below build on this: the game rule takes the first entry, the
+# workspace rules walk the whole list.
+detect_monitors_by_size() {
+    local dir conn mode w h px
     for dir in /sys/class/drm/card*-*; do
         [ -r "$dir/status" ] || continue
         [ "$(cat "$dir/status")" = "connected" ] || continue
@@ -327,16 +330,13 @@ detect_game_monitor() {
         h="${mode##*x}"
         case "$w$h" in ''|*[!0-9]*) continue ;; esac
         px=$(( w * h ))
-        if [ "$px" -gt "$best_px" ]; then
-            best_px="$px"
-            conn="$(basename "$dir")"
-            best="${conn#card*-}"
-        fi
-    done
-    printf '%s' "$best"
+        conn="$(basename "$dir")"
+        printf '%s %s\n' "$px" "${conn#card*-}"
+    done | sort -rn | cut -d' ' -f2
 }
 
-GAME_MONITOR="$(detect_game_monitor)"
+MONITORS="$(detect_monitors_by_size)"
+GAME_MONITOR="$(printf '%s\n' "$MONITORS" | head -1)"
 if [ -z "$GAME_MONITOR" ]; then
     # No connected output found (headless?). The marker is not written, so the
     # next login tries again.
@@ -354,12 +354,60 @@ local gameClasses = {
     "^(gamescope)$",
     "^(.*\\.exe)$",               -- Wine/Proton without a class of its own
     "^(steam_proton)$",
+    -- Games with a native Linux build never get a steam_app_ class; the engine
+    -- sets one of its own. Tabletop Simulator is Unity, which derives it from
+    -- the product name - the pattern covers the spellings that occur (with and
+    -- without the space, with and without the .x86_64 suffix of the binary).
+    "^([Tt]abletop ?[Ss]imulator.*)$",
 }
 for _, class in ipairs(gameClasses) do
     hl.window_rule({ match = { class = class }, monitor = gameMonitor })
 end
 LUA
     } | append_once "$CONF/hypr/custom/rules.lua" "-- >>> bazz-hypr: game-monitor"
+fi
+
+# Which workspace lives on which monitor.
+#
+# Without rules Hyprland hands new workspaces out in connector order: the first
+# monitor it enumerates gets workspace 1, the second gets workspace 2. On a
+# desktop with a small secondary screen that means the session starts on the
+# wrong one, and it is not something a "primary monitor" setting could fix -
+# Hyprland has no such concept, workspace rules are the mechanism.
+#
+# Ten per monitor is not an arbitrary number. The shell's SUPER+<number> binds
+# are group relative (workspace_in_group() in hyprland/lib/init.lua,
+# workspaceGroupSize = 10 in hyprland/variables.lua), so with groups of ten the
+# same key gives workspace 3 on the first screen and 13 on the second - every
+# monitor gets its own set of ten under identical keys.
+#
+# Largest monitor first, the same order the game rule uses.
+if [ -z "$MONITORS" ]; then
+    log "no monitor detected - workspace rules skipped"
+else
+    {
+        cat <<'LUA'
+-- Workspaces bound to monitors, in groups of ten, largest screen first.
+-- SUPER+<number> is group relative (workspaceGroupSize = 10), so the same key
+-- means workspace 3 on the first monitor and 13 on the second. The "default"
+-- workspace of each monitor is what decides where the session starts.
+--
+-- After a monitor change: delete this block including its marker and log in
+-- again, then it is rebuilt for the new set of outputs.
+LUA
+        idx=0
+        printf '%s\n' "$MONITORS" | while read -r mon; do
+            [ -n "$mon" ] || continue
+            first=$(( idx * 10 + 1 ))
+            printf '\n-- %s\n' "$mon"
+            printf 'hl.workspace_rule({ workspace = "%d", monitor = "%s", default = true })\n' \
+                "$first" "$mon"
+            printf 'for i = %d, %d do\n' "$(( first + 1 ))" "$(( first + 9 ))"
+            printf '    hl.workspace_rule({ workspace = tostring(i), monitor = "%s" })\n' "$mon"
+            printf 'end\n'
+            idx=$(( idx + 1 ))
+        done
+    } | append_once "$CONF/hypr/custom/rules.lua" "-- >>> bazz-hypr: workspace-monitors"
 fi
 
 # --- 5. Python venv ----------------------------------------------------------
