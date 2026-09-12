@@ -6,6 +6,8 @@ A custom [BlueBuild](https://blue-build.org) image on top of
 default desktop, plus [end4-pC](https://github.com/pctrade/end4-pC) as a second,
 pre-installed shell.
 
+![The bazz-hypr desktop: illogical-impulse bar, widgets and a terminal on Hyprland](screenshots.png)
+
 KDE Plasma stays installed and selectable at the login screen. That is
 deliberate, not leftovers — see [Why KDE Plasma stays](#why-kde-plasma-stays).
 

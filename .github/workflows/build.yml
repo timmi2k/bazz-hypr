@@ -7,6 +7,9 @@ on:
   push:
     paths-ignore:
       - "**.md"
+      # Screenshot for the README. Not part of the image, so a new one should
+      # not cost a full rebuild.
+      - "screenshots.png"
   pull_request:
   workflow_dispatch:
 
