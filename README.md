@@ -368,16 +368,28 @@ first.
 
 ### Changing things by hand
 
-`hyprctl reload` does **not** pick up changed `custom/*.lua`. Lua caches modules
-in `package.loaded`, and a file that was loaded as empty at session start stays
-empty. For a quick test:
+`hyprctl reload` **does** pick up changed `custom/*.lua`. Worth stating plainly,
+because the opposite stood here before: Hyprland 0.56 re-runs the configuration
+in a fresh Lua state, so nothing is served out of `package.loaded` and every
+`custom/` file is read from disk again.
+
+Verified on this machine: with the description of a bind in
+`custom/keybinds.lua` edited, `hyprctl reload` followed by `hyprctl binds` shows
+the new text and no trace of the old bind.
+
+What a reload does *not* keep is anything registered through `hyprctl eval` —
+that lives until the next reload, which makes it the right tool for trying
+something out:
 
 ```bash
-hyprctl eval 'package.loaded["custom.general"]=nil; require("custom.general")'
+hyprctl eval 'hl.bind("SUPER + F12", hl.dsp.exec_cmd("kitty"), { description = "Test" })'
 ```
 
-Only a real session restart is fully reliable. Note also that `hyprctl keyword`
-no longer works with the Lua parser — it answers
+One trap when combining the two: an `eval` for a bind the file already contains
+registers it a **second** time, and the key then fires the command twice. A
+`hyprctl reload` clears that up.
+
+`hyprctl keyword` is gone with the Lua parser — it answers
 *"keyword can't work with non-legacy parsers. Use eval."*
 
 ### Which GUI writes which file
