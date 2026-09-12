@@ -20,3 +20,19 @@ Documentation=man:systemd.special(7)
 BindsTo=graphical-session.target
 Wants=graphical-session-pre.target
 After=graphical-session-pre.target
+
+# Autostart of ~/.config/autostart/*.desktop.
+#
+# systemd always runs systemd-xdg-autostart-generator, which turns every XDG
+# autostart desktop file into a unit app-<name>@autostart.service. What is
+# missing without a desktop environment is the trigger:
+# xdg-desktop-autostart.target carries RefuseManualStart=yes and only comes up
+# when a session unit wants it. Plasma does that in plasma-workspace.target;
+# Hyprland ships nothing of the sort, so under this session the entries made in
+# KDE (EasyEffects, Steam, Netbird, ...) were simply never started.
+#
+# Entries under /etc/xdg/autostart with OnlyShowIn=KDE or GNOME stay dead on
+# purpose: the generator gives each unit an ExecCondition that compares against
+# XDG_CURRENT_DESKTOP, and that is "Hyprland" here.
+Wants=xdg-desktop-autostart.target
+Before=xdg-desktop-autostart.target

@@ -201,6 +201,11 @@ modules:
         - ydotool
         # --- Widgets / helper programs ---
         - fuzzel
+        # Application grid. The shell itself only offers a search field (tap
+        # SUPER), so there is nothing that shows what is installed - nwg-drawer
+        # is that missing start menu: icon grid, categories, own search,
+        # Flatpaks included. custom/keybinds.lua binds it to SUPER+Space.
+        - nwg-drawer
         - ImageMagick
         - hypridle
         - hyprlock

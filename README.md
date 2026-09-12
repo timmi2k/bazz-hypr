@@ -139,6 +139,7 @@ are called. "Left" and "right" follow the physical layout in
 
 | Bind | Action |
 |---|---|
+| `SUPER+Space` | **Application grid** — everything that is installed |
 | `SUPER+Return` | Terminal |
 | `SUPER+W` | Browser |
 | `SUPER+E` | File manager |
@@ -148,6 +149,16 @@ are called. "Left" and "right" follow the physical layout in
 | `SUPER+CTRL+V` | Volume mixer |
 | `CTRL+SHIFT+Esc` | Task manager |
 | `SUPER+CTRL+ALT+SHIFT+W` | Office software |
+
+Tapping `SUPER` opens the shell's **search**, which only finds what you can
+already name — there is no app list in it. `SUPER+Space` opens `nwg-drawer`
+instead: an icon grid of every desktop entry on the machine, Flatpaks included,
+with categories and a search of its own. Pressing it again closes the drawer.
+
+The bind lives in `~/.config/hypr/custom/keybinds.lua` and falls back to
+`fuzzel` where `nwg-drawer` is missing — `fuzzel` lists every application as
+well, just as a plain list instead of a grid. Both read the same `.desktop`
+files as KDE's menu did, so nothing has to be registered anywhere.
 
 ### Shell and UI
 
@@ -228,6 +239,93 @@ the seed script as marked blocks. Edit them freely; see
 
 ---
 
+## Autostart
+
+Programs that should come up with the session — EasyEffects, Netbird, Steam —
+go into `~/.config/autostart/` as desktop files, exactly as under KDE. Entries
+that were made there under Plasma keep working; nothing has to be converted.
+
+The GUI for it is still KDE's, and it starts under Hyprland:
+
+```bash
+kcmshell6 kcm_autostart
+```
+
+"Add…" picks an application from the menu, the checkbox in front of an entry
+switches it off without deleting it. It writes plain desktop files, so an
+editor does the same job:
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=NetBird
+Exec=/usr/bin/netbird-ui
+```
+
+**What runs them is systemd, not Hyprland.**
+`systemd-xdg-autostart-generator` turns every desktop file in
+`~/.config/autostart/` and `/etc/xdg/autostart/` into a unit named
+`app-<name>@autostart.service`, and those units are pulled in by
+`xdg-desktop-autostart.target`. That target carries `RefuseManualStart=yes` —
+it only comes up when a session unit wants it. Plasma does that in
+`plasma-workspace.target`; Hyprland ships nothing of the sort, which is why
+every KDE-era entry was silently dead here until `hyprland-session.target`
+started pulling the target in.
+
+Look at it, and test without logging out:
+
+```bash
+systemctl --user list-units 'app-*@autostart.service'    # what exists, what ran
+systemctl --user start app-netbird@autostart.service     # start one right now
+journalctl --user -u 'app-netbird@autostart.service' -b  # why one did not
+```
+
+Two things worth knowing:
+
+* **Not everything in `/etc/xdg/autostart` comes along, by design.** Two
+  filters sit in front of it. `X-systemd-skip=true` in a desktop file means no
+  unit is generated at all — that is how KDE's own components (plasmashell,
+  powerdevil, kglobalacceld, the KDE polkit agent, kwallet) opt out, because
+  they have native `plasma-*.service` units that only Plasma starts. Of those,
+  the only one actually needed here is the polkit agent, and
+  `custom/execs.lua` starts it directly. The second filter is an
+  `ExecCondition` that the generator adds from `OnlyShowIn`/`NotShowIn` and
+  compares against `XDG_CURRENT_DESKTOP`, which is `Hyprland` here: that is
+  what keeps the three `OnlyShowIn=GNOME;Unity;MATE;` gnome-keyring components
+  out (PAM and `hyprland/execs.lua` start the keyring instead). To force such
+  an entry in anyway, copy it into `~/.config/autostart/` and add `Hyprland` to
+  its `OnlyShowIn`.
+* **`~/.config/autostart-scripts/` does nothing.** That directory was a Plasma
+  extension for plain shell scripts, and systemd's generator only understands
+  desktop files. Wrap the script in a `.desktop` file of its own, or put it in
+  `custom/execs.lua`.
+
+### Or from the compositor
+
+Anything that needs Hyprland itself — `hyprctl` calls, the wallpaper, the shell
+— belongs in `~/.config/hypr/custom/execs.lua`, which is what the
+[Hyprland wiki](https://wiki.hypr.land/configuring/core/autostart/) documents:
+
+```lua
+hl.on("hyprland.start", function()
+    hl.exec_cmd("nm-applet")
+end)
+```
+
+`hl.exec_cmd` spawns asynchronously, so no `&` is needed, and `hyprland.start`
+fires once per session rather than on every config reload — that is the Lua
+equivalent of the old `exec-once`. `hyprland.shutdown` is the counterpart, and
+the seed script uses it to stop `hyprland-session.target` when the compositor
+exits. Without that stop the target would stay active after a logout for as
+long as the user's systemd manager lives on, and a second login would find the
+autostart units "already started" — meaning not started at all.
+
+Rule of thumb: applications into `~/.config/autostart/` (GUI-managed,
+supervised by systemd, individually restartable), compositor plumbing into
+`custom/execs.lua`.
+
+---
+
 ## Where your settings live
 
 The single most useful thing to know about this image, because not every
@@ -243,6 +341,7 @@ directory behaves the same on an update.
 | `~/.config/quickshell/ii/` | upstream | no — replaced wholesale |
 | `~/.config/quickshell/end4-pC/` | git checkout | yes — `git pull` it yourself |
 | `~/.config/fish`, `kitty`, `Kvantum`, `kdeglobals`, … | you | yes — only created when absent |
+| `~/.config/autostart/*.desktop` | you | **yes** — never touched by this image |
 | `~/.local/state/quickshell/.venv` | image | copied when absent |
 
 "A dots bump" means the pinned upstream SHAs in `files/scripts/install-dots.sh`
@@ -280,6 +379,39 @@ hyprctl eval 'package.loaded["custom.general"]=nil; require("custom.general")'
 Only a real session restart is fully reliable. Note also that `hyprctl keyword`
 no longer works with the Lua parser — it answers
 *"keyword can't work with non-legacy parsers. Use eval."*
+
+### Which GUI writes which file
+
+| Tool | How to open it | Writes |
+|---|---|---|
+| Shell settings | `SUPER+I` | `~/.config/illogical-impulse/config.json` and `hypr/hyprland/shellOverrides/*.lua` |
+| Autostart | `kcmshell6 kcm_autostart` | `~/.config/autostart/*.desktop` |
+| Network | `kcmshell6 kcm_networkmanagement` | NetworkManager connections |
+| Bluetooth | `kcmshell6 kcm_bluetooth` | bluez |
+| Qt widget style, icons, cursor | `kcmshell6 kcm_style`, `kcm_icons`, `kcm_cursortheme` | `~/.config/kdeglobals` — Qt/KDE apps only |
+| Input remapping | `input-remapper-gtk` | `~/.config/input-remapper-2/` |
+
+`SUPER+I` is the one that matters: it is the only GUI that knows this shell,
+and **its output wins over everything in `custom/`** (see the load order
+above). `kcmshell6 <module>` opens single KDE modules; `kcmshell6 --list` shows
+all of them. `plasma-systemsettings` as a whole starts too, but a good half of
+its pages configure a Plasma that is not running here — prefer the single
+modules.
+
+There is **no GUI that edits `hyprland.lua`**, and that is not an oversight of
+this image. The Lua config is new with Hyprland 0.55; every third-party config
+editor in circulation (HyprGUI and friends) parses the old `hyprland.conf`
+format and would either find nothing here or write a file that
+illogical-impulse deliberately renames to `hyprland.conf.old`. Do not point one
+of them at this setup.
+
+The one exception is monitor layout: `nwg-displays` does write `monitors.lua`,
+and `hyprland.lua` already sources that file if it exists. It is not packaged
+for Fedora 44 in any repo this image uses, though — until it is, `hyprctl
+monitors` plus a hand-written `~/.config/hypr/monitors.lua` is the way.
+
+Colours are not configured by hand at all: `matugen` derives the whole palette
+from the wallpaper, and `SUPER+CTRL+T` is the front end for it.
 
 ---
 

@@ -228,6 +228,28 @@ hl.on("hyprland.start", function()
 end)
 LUA
 
+# Counterpart to the target start above: stop it again when the compositor
+# exits.
+#
+# Nobody else does that. Hyprland is started by the login manager and not
+# through uwsm, so hyprland-session.target - and with it
+# graphical-session.target - stays active after logging out for as long as the
+# user's systemd manager lives on (a second session, an ssh login, an enabled
+# linger). Everything below the target then counts as "already started" on the
+# next login: the portals keep their dead Wayland connection, and the autostart
+# units are not started again - EasyEffects, Steam and Netbird stay away.
+#
+# graphical-session.target carries StopWhenUnneeded=yes, so this one stop pulls
+# the whole tree down.
+#
+# append_once and not write_once: existing installations already have a
+# non-empty custom/execs.lua and would never see this block otherwise.
+append_once "$CONF/hypr/custom/execs.lua" "-- >>> bazz-hypr: session-teardown" <<'LUA'
+hl.on("hyprland.shutdown", function()
+    hl.exec_cmd("systemctl --user stop --no-block hyprland-session.target")
+end)
+LUA
+
 # Take the keyboard layout from the system setting. illogical-impulse hardcodes
 # kb_layout = "us" in hyprland/general.lua; custom/general.lua is loaded
 # afterwards and overrides it.
@@ -274,6 +296,19 @@ for i = 1, 2 do
     hl.bind("SUPER + SHIFT + ALT + " .. arrowkey[i], hl.dsp.workspace.move({ monitor = mondir[i] }),
         { description = "Workspace: Move to monitor " .. arrowkey[i] })
 end
+LUA
+
+# An application grid, because the shell only offers a search: tapping SUPER
+# opens a text field, and nothing anywhere lists what is actually installed.
+#
+# nwg-drawer is a real drawer - icon grid, categories, its own search, finds
+# Flatpaks as well - and comes from the image. The leading pkill is upstream's
+# toggle idiom: if the drawer is open, the same key closes it again. fuzzel at
+# the end is the fallback for a machine where nwg-drawer is missing; it also
+# lists every application, just as a plain list.
+append_once "$CONF/hypr/custom/keybinds.lua" "-- >>> bazz-hypr: app-grid" <<'LUA'
+hl.bind("SUPER + Space", hl.dsp.exec_cmd("pkill nwg-drawer || pkill fuzzel || nwg-drawer || fuzzel"),
+    { description = "App: Application grid" })
 LUA
 
 # Determine the gaming monitor: the largest connected screen.
