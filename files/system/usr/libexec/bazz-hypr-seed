@@ -367,19 +367,19 @@ LUA
     } | append_once "$CONF/hypr/custom/rules.lua" "-- >>> bazz-hypr: game-monitor"
 fi
 
-# Which workspace lives on which monitor.
+# Which monitor the session starts on.
 #
 # Without rules Hyprland hands new workspaces out in connector order: the first
 # monitor it enumerates gets workspace 1, the second gets workspace 2. On a
-# desktop with a small secondary screen that means the session starts on the
-# wrong one, and it is not something a "primary monitor" setting could fix -
-# Hyprland has no such concept, workspace rules are the mechanism.
+# desktop with a small secondary screen that means the session comes up on the
+# wrong one, and no "primary monitor" setting can fix it - Hyprland has no such
+# concept, workspace rules are the mechanism.
 #
-# Ten per monitor is not an arbitrary number. The shell's SUPER+<number> binds
-# are group relative (workspace_in_group() in hyprland/lib/init.lua,
-# workspaceGroupSize = 10 in hyprland/variables.lua), so with groups of ten the
-# same key gives workspace 3 on the first screen and 13 on the second - every
-# monitor gets its own set of ten under identical keys.
+# Exactly one workspace per monitor is pinned, as that monitor's "default": the
+# largest screen gets workspace 1, the next one workspace 2, and so on. The rest
+# stay unbound deliberately - they are created on whichever monitor has focus,
+# and all ten stay in one group (workspaceGroupSize = 10), so SUPER+<number>
+# means the same workspace no matter which screen you are on.
 #
 # Largest monitor first, the same order the game rule uses.
 if [ -z "$MONITORS" ]; then
@@ -387,24 +387,18 @@ if [ -z "$MONITORS" ]; then
 else
     {
         cat <<'LUA'
--- Workspaces bound to monitors, in groups of ten, largest screen first.
--- SUPER+<number> is group relative (workspaceGroupSize = 10), so the same key
--- means workspace 3 on the first monitor and 13 on the second. The "default"
--- workspace of each monitor is what decides where the session starts.
+-- Where the session starts: the "default" workspace of each monitor, largest
+-- screen first. Every other workspace stays free and opens on whichever
+-- monitor has focus.
 --
 -- After a monitor change: delete this block including its marker and log in
 -- again, then it is rebuilt for the new set of outputs.
 LUA
-        idx=0
+        idx=1
         printf '%s\n' "$MONITORS" | while read -r mon; do
             [ -n "$mon" ] || continue
-            first=$(( idx * 10 + 1 ))
-            printf '\n-- %s\n' "$mon"
             printf 'hl.workspace_rule({ workspace = "%d", monitor = "%s", default = true })\n' \
-                "$first" "$mon"
-            printf 'for i = %d, %d do\n' "$(( first + 1 ))" "$(( first + 9 ))"
-            printf '    hl.workspace_rule({ workspace = tostring(i), monitor = "%s" })\n' "$mon"
-            printf 'end\n'
+                "$idx" "$mon"
             idx=$(( idx + 1 ))
         done
     } | append_once "$CONF/hypr/custom/rules.lua" "-- >>> bazz-hypr: workspace-monitors"

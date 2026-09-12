@@ -116,34 +116,31 @@ they match what is actually bound rather than what was intended.
 
 | Bind | Action |
 |---|---|
-| `SUPER+1…0` | Focus workspace 1–10 **of the current monitor's group** |
+| `SUPER+1…0` | Focus workspace 1–10 |
 | `SUPER+CTRL+←/→` | Focus workspace left/right |
 | `SUPER+S` | Toggle scratchpad |
 | `SUPER+Tab` | Overview |
 
-Workspaces are bound to monitors in groups of ten, largest screen first: the big
-monitor owns 1–10, the second one 11–20. The number keys are **group relative**,
-so `SUPER+3` is workspace 3 on the big screen and workspace 13 on the second —
-same key, the screen you are on decides. That is the shell's own scheme
-(`workspaceGroupSize = 10` in `hyprland/variables.lua`); the rules only pin each
-group to a monitor.
+Ten workspaces, shared by both screens, with one pin: **workspace 1 is the
+default of the largest monitor, workspace 2 the default of the next one.** That
+is what decides where the session comes up. Everything from 3 upwards stays
+free and is created on whichever monitor has focus, and all ten sit in one
+group (`workspaceGroupSize = 10`), so `SUPER+<number>` means the same workspace
+from either screen.
 
-Two things follow from it:
+Why that needs a rule at all: without one Hyprland hands workspaces out in
+connector order, so workspace 1 lands on whichever output the GPU enumerates
+first — which is how workspace 1 ended up on the small screen and workspace 2
+on the big one. And **Hyprland has no "primary monitor" setting**; workspace
+rules are the mechanism for it, there is nothing else to set.
 
-* **The session starts on the largest monitor**, because workspace 1 is that
-  monitor's default. Without rules Hyprland hands workspaces out in connector
-  order, so workspace 1 lands on whichever output the GPU enumerates first —
-  which is how workspace 1 ended up on the small screen and workspace 2 on the
-  big one.
-* **Hyprland has no "primary monitor" setting.** Workspace rules are the
-  mechanism for it; there is nothing else to set.
-
-The rules are generated per machine into `~/.config/hypr/custom/rules.lua` from
+The pins are generated per machine into `~/.config/hypr/custom/rules.lua` from
 the outputs that are actually connected, so no connector name is hardcoded in
 the image. After a monitor change, delete the
-`-- >>> bazz-hypr: workspace-monitors` block together with its marker and log in
-again — the seed script rebuilds it. Rules apply when a workspace is *created*,
-so workspaces that already exist stay where they are until the next session.
+`-- >>> bazz-hypr: workspace-monitors` block together with its marker and log
+in again — the seed script rebuilds it. Rules apply when a workspace is
+*created*, so workspaces that already exist stay on their monitor until the
+next session.
 
 ### Monitors
 
