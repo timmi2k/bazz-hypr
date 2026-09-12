@@ -280,12 +280,24 @@ Every line is `openwindow>>address,workspace,class,title`. For a window that is
 already open, `hyprctl clients` shows the same fields. Add the class to
 `gameClasses` in `~/.config/hypr/custom/rules.lua`, then `hyprctl reload`.
 
-Worth getting right, because **moving a running game is not a fix**: engines pick
-their render size when they start and do not re-layout when the surface lands on
-a 1080p screen after starting on 1440p, so the picture ends up unscaled or
-cropped. Opening it on the right monitor is the only clean way — which is also
-why workspace 1 now lives on the big screen: a game launched from Steam inherits
-the workspace it was started from.
+### Take fullscreen away from the engine
+
+The better fix for a game that opens on the wrong screen, and the one that also
+survives being moved: **set the game to windowed mode in its own video settings
+and press `SUPER+F`.** Hyprland's fullscreen then makes the window fill whichever
+monitor it is on, and because the compositor is resizing a normal surface rather
+than the engine picking a display mode at startup, moving it between a 1440p and
+a 1080p screen scales correctly. Verified with Tabletop Simulator.
+
+Engine-side fullscreen is what breaks: it decides its render size once, at
+startup, and does not re-layout when the surface lands somewhere else — the
+picture ends up unscaled or cropped. Moving a running game is therefore not a
+fix, which is what the window rules and the workspace pin are for: the game opens
+on the big screen to begin with, and a game launched from Steam inherits the
+workspace it was started from.
+
+For the stubborn ones there is a third variant, `SUPER+ALT+F`: it reports
+fullscreen to the client while the compositor leaves the window as it is.
 
 ---
 

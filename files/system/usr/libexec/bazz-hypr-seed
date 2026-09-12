@@ -356,8 +356,14 @@ local gameClasses = {
     "^(steam_proton)$",
     -- Games with a native Linux build never get a steam_app_ class; the engine
     -- sets one of its own. Tabletop Simulator is Unity, which derives it from
-    -- the product name - the pattern covers the spellings that occur (with and
-    -- without the space, with and without the .x86_64 suffix of the binary).
+    -- the product name - so this pattern is a best guess at the spellings Unity
+    -- produces (with and without the space, with and without the .x86_64 of the
+    -- binary). If a game ignores the rule, read its real class off
+    -- `hyprctl clients` while it runs and put that in instead.
+    --
+    -- Note that the rule only decides where the window OPENS. A game that runs
+    -- in its own fullscreen mode still breaks when moved afterwards; windowed
+    -- mode plus SUPER+F (the compositor's fullscreen) is the robust way.
     "^([Tt]abletop ?[Ss]imulator.*)$",
 }
 for _, class in ipairs(gameClasses) do
