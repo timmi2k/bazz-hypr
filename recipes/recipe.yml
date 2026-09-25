@@ -54,13 +54,16 @@ modules:
         # --- Audio ---
         - cava
         - pavucontrol
-        - wireplumber
+        # wireplumber is deliberately not listed: since 2026-09-19 Bazzite ships
+        # it as terra-wireplumber, which conflicts with Fedora's wireplumber
+        # package and made every build fail. The base image has it anyway.
         - libdbusmenu-gtk3-devel
         - playerctl
         # --- Backlight / sensors ---
         - geoclue2
         - brightnessctl
-        - ddcutil
+        # ddcutil is deliberately not listed either: Bazzite swaps it for
+        # terra-ddcutil since 2026-09-24, same conflict as wireplumber above.
         # --- Base tools ---
         - bc
         - cliphist
