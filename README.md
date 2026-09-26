@@ -342,7 +342,7 @@ systemctl --user start app-netbird@autostart.service     # start one right now
 journalctl --user -u 'app-netbird@autostart.service' -b  # why one did not
 ```
 
-Two things worth knowing:
+Worth knowing:
 
 * **Not everything in `/etc/xdg/autostart` comes along, by design.** Two
   filters sit in front of it. `X-systemd-skip=true` in a desktop file means no
@@ -361,6 +361,17 @@ Two things worth knowing:
   extension for plain shell scripts, and systemd's generator only understands
   desktop files. Wrap the script in a `.desktop` file of its own, or put it in
   `custom/execs.lua`.
+* **The "launch at startup" switch inside a Flatpak app does nothing here.**
+  Flatpak apps cannot write `~/.config/autostart/` themselves; the switch goes
+  through the Background portal, and no backend on this image offers that
+  interface under Hyprland — `-hyprland` and `-gtk` never had it, `-kde` only
+  registers it inside Plasma. EasyEffects' "Launch service at system startup"
+  is such a switch. Use `kcmshell6 kcm_autostart` or edit the file instead.
+  Native apps (Steam, NetBird) write the file directly and are fine.
+* **KDE's session restore is not autostart.** An app that came back under
+  Plasma because it was open at logout — Discord — has no entry anywhere and
+  has to be added. The exported desktop file of a Flatpak does the job as is:
+  `cp /var/lib/flatpak/exports/share/applications/com.discordapp.Discord.desktop ~/.config/autostart/`.
 
 ### Or from the compositor
 
@@ -528,6 +539,39 @@ Then `Ctrl+Super+R`. To go back, `git -C … reset --hard <old-sha>`.
 ---
 
 ## Troubleshooting
+
+### Autostart entries never run
+
+First check whether the trigger is up at all:
+
+```bash
+systemctl --user is-active xdg-desktop-autostart.target
+systemctl --user show hyprland-session.target -p FragmentPath
+```
+
+If the first says `inactive` and the second points into `~/.config/systemd/user/`,
+a private copy of the target is shadowing the one from the image — user units
+win over `/usr/lib/systemd/user/`. That is exactly what happened on the target
+machine: a hands-on copy from the very first session sat there and silently
+kept `Wants=xdg-desktop-autostart.target` from ever taking effect, for weeks.
+Delete the copy, then:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user start hyprland-session.target   # pulls the missing target in, no re-login needed
+```
+
+If the units did start but were `failed` or `dead` a second after login, and
+`journalctl --user -b -u 'app-*@autostart.service'` says "could not connect to
+display", the target came up before Hyprland's environment reached the user
+manager — see [the section on that race](#and-then-it-was-activated-too-early)
+further down. Images from 2026-09-26 on gate the target on the import. For a
+session where it has already happened, start the tree again; a plain `restart`
+is not enough, the autostart target has to go inactive first:
+
+```bash
+systemctl --user stop hyprland-session.target && sleep 2 && systemctl --user start hyprland-session.target
+```
 
 ### The KDE portal looks like it is missing
 
@@ -1156,6 +1200,28 @@ via `BindsTo`. It is started in two places:
 
 `systemctl start` needs `--no-block` for it: without that it waits for the unit
 to settle and runs into a timeout, even though the target is long since active.
+
+### …and then it was activated too early
+
+Once the target came up at login, the autostart units started with it — and
+died within the same second: `kdeconnectd: could not connect to display`,
+EasyEffects with SIGABRT, Steam and Discord gone after a few seconds. Hyprland
+exports `WAYLAND_DISPLAY`, `DISPLAY` and `HYPRLAND_INSTANCE_SIGNATURE` to the
+user manager by spawning `systemctl --user import-environment …` on startup,
+asynchronously. Both places that start `hyprland-session.target` — the session
+wrapper as soon as the instance directory appears, `custom/execs.lua` on
+`hyprland.start` — win that race. A unit launched before the import sees no
+display; a unit with `ConditionEnvironment=WAYLAND_DISPLAY`, and
+`xdg-desktop-portal-hyprland` is one, is skipped for the whole session.
+
+`bazz-hypr-env-ready.service` closes the gap. `hyprland-session.target` wants
+it and orders after it, it is `Before=graphical-session.target`, and all it
+does is run `/usr/libexec/bazz-hypr-wait-env`: wait until the manager's
+environment carries the signature of the running instance, 20 s cap, never
+fails. Everything below `graphical-session.target` — portals, autostart —
+therefore starts with the environment in place, and the two early triggers can
+stay as they are. Testing it by hand needs a real login; in a running session
+the import has long happened and the gate returns at once.
 
 ## start-hyprland instead of Hyprland
 

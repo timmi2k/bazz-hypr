@@ -1,0 +1,15 @@
+[Unit]
+Description=Wait for Hyprland's environment to reach the user manager
+Documentation=https://github.com/timmi2k/bazz-hypr#graphical-sessiontarget-is-activated-by-nobody
+
+# Pulled in by hyprland-session.target, which also orders after it. Before=
+# graphical-session.target so that the portals and every
+# app-*@autostart.service wait as well - all of them order themselves after
+# that target. See /usr/libexec/bazz-hypr-wait-env for what is waited for.
+Before=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/bazz-hypr-wait-env
+# The script gives up after 20 s on its own; this is only the backstop.
+TimeoutStartSec=40

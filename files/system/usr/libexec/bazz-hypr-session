@@ -32,6 +32,10 @@ fi
 # touched again, so that local changes are preserved. Existing installations
 # would therefore never receive the fix there. Here it applies regardless.
 #
+# Starting this early is fine: hyprland-session.target wants
+# bazz-hypr-env-ready.service and orders after it, so nothing below the target
+# launches before Hyprland's environment import has reached the user manager.
+#
 # Without the target all xdg-desktop-portal backends stay dead and Electron
 # applications (Discord, Chrome) hang on startup.
 (

@@ -36,3 +36,17 @@ After=graphical-session-pre.target
 # XDG_CURRENT_DESKTOP, and that is "Hyprland" here.
 Wants=xdg-desktop-autostart.target
 Before=xdg-desktop-autostart.target
+
+# Not before Hyprland's environment is in the user manager.
+#
+# Hyprland spawns "systemctl --user import-environment DISPLAY WAYLAND_DISPLAY
+# HYPRLAND_INSTANCE_SIGNATURE ..." on startup, asynchronously. Both places that
+# start this target - the session wrapper as soon as the instance directory
+# exists, custom/execs.lua on hyprland.start - can win that race, and then
+# every autostart unit above launches without a display and dies within the
+# second, while xdg-desktop-portal-hyprland (ConditionEnvironment=
+# WAYLAND_DISPLAY) is skipped for the whole session. The gate waits for the
+# import, capped at 20 s, and is Before=graphical-session.target, so the
+# portals and the autostart units wait with it.
+Wants=bazz-hypr-env-ready.service
+After=bazz-hypr-env-ready.service

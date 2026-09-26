@@ -1,0 +1,31 @@
+#!/bin/sh
+# Hold hyprland-session.target until Hyprland's environment has reached the
+# systemd user manager.
+#
+# Hyprland spawns "systemctl --user import-environment DISPLAY WAYLAND_DISPLAY
+# HYPRLAND_INSTANCE_SIGNATURE XDG_CURRENT_DESKTOP ..." on startup - asynchronously.
+# Whoever starts hyprland-session.target before that has landed launches every
+# app-*@autostart.service without a display: they die within the second
+# ("could not connect to display"), and xdg-desktop-portal-hyprland with its
+# ConditionEnvironment=WAYLAND_DISPLAY is skipped for the whole session.
+#
+# The import is recognised by the instance signature: the manager's copy has to
+# match the newest instance directory under $XDG_RUNTIME_DIR/hypr. A stale value
+# from the previous session cannot pass, Hyprland unsets it on exit and the new
+# instance has a new signature anyway.
+#
+# Always exits 0: a session with a missing import is still better than one
+# without portals.
+rundir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/hypr"
+i=0
+while [ "$i" -lt 100 ]; do
+    sig=$(ls -t "$rundir" 2>/dev/null | head -n 1)
+    if [ -n "$sig" ] && systemctl --user show-environment 2>/dev/null \
+            | grep -qxF "HYPRLAND_INSTANCE_SIGNATURE=$sig"; then
+        exit 0
+    fi
+    i=$((i + 1))
+    sleep 0.2
+done
+echo "bazz-hypr-wait-env: no environment import from Hyprland after 20 s, continuing without it" >&2
+exit 0
