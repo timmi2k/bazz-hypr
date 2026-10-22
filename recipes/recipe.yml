@@ -23,6 +23,12 @@ modules:
   # not installable on Bazzite (Qt 6.11) - the first CI build failed on it.
   # errornointernet/quickshell is used instead, built against Qt 6.11.
   # ---------------------------------------------------------------------------
+  # Has to run before the dnf module: the Xwayland build in the base cannot
+  # satisfy hyprland's dependency, see the script for details.
+  - type: script
+    scripts:
+      - fix-xwayland.sh
+
   - type: dnf
     repos:
       copr:
