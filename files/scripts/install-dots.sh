@@ -58,6 +58,16 @@ for f in "$SHARE/dots-hyprland/dots/.config/quickshell/ii/scripts/colors/switchw
     fi
 done
 
+# Hyprland 0.57 enforces decoration.shadow.render_power in 1-4 and puts up a
+# config error for anything above; older releases clamped silently. Upstream
+# still sets 10, so set it to 4, which is what 10 effectively was before.
+GENERAL="$SHARE/dots-hyprland/dots/.config/hypr/hyprland/general.lua"
+sed -i -E 's/render_power = [0-9]+,/render_power = 4,/' "$GENERAL"
+if ! grep -q 'render_power = 4,' "$GENERAL"; then
+    echo "ERROR: $GENERAL no longer sets render_power where the sed expects it"
+    exit 1
+fi
+
 # Version stamp for the first-boot service: when it changes, bazz-hypr-seed
 # re-syncs the upstream configuration in HOME.
 printf '%s\n' "${DOTS_SHA}+${PC_SHA}" > "$SHARE/dots-version"
