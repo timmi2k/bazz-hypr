@@ -280,6 +280,26 @@ hl.config({
 })
 LUA
 
+# No automatic HDR. Since 0.57 Hyprland offers HDR to every fullscreen surface,
+# and with cm_auto_hdr at its default of 1 it switches the monitor into HDR as
+# soon as a video player takes the offer. Outputs come up 8-bit unless a
+# monitor rule asks for bitdepth 10, so that is a modeset - the screen goes
+# black - plus "wide color gamut is enabled but the display is not in 10-bit
+# mode". Whoever wants HDR sets it per monitor on purpose.
+#
+# append_once: custom/general.lua already holds the keyboard block on every
+# existing installation.
+append_once "$CONF/hypr/custom/general.lua" "-- >>> bazz-hypr: no-auto-hdr" <<'LUA'
+-- Never switch a monitor into HDR on its own for fullscreen video. See the
+-- seed script for why; delete this block together with its marker if you do
+-- want it.
+hl.config({
+    render = {
+        cm_auto_hdr = 0
+    }
+})
+LUA
+
 # Monitor keybinds. Purely direction based (l/r) so that the block fits on any
 # machine, no matter what the outputs are called.
 append_once "$CONF/hypr/custom/keybinds.lua" "-- >>> bazz-hypr: monitor-keybinds" <<'LUA'

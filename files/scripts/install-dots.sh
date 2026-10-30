@@ -68,6 +68,47 @@ if ! grep -q 'render_power = 4,' "$GENERAL"; then
     exit 1
 fi
 
+# Since 0.57 Hyprland hands the shell the release of SUPER + SUPER_L even when
+# another key was pressed in between; before, the combo shadowed it. Nothing in
+# the Lua config sends searchToggleReleaseInterrupt any more, so every Super+1,
+# Super+Enter, ... opened the search on release. This is
+# end-4/dots-hyprland#3732, still open upstream: the tap becomes a release
+# bind, which Hyprland drops once another key or button comes in between, and
+# the wheel binds cancel it. If a dots bump makes git apply fail, check whether
+# upstream has fixed it and drop the patch.
+git -C "$SHARE/dots-hyprland" apply <<'PATCH'
+diff --git a/dots/.config/hypr/hyprland/keybinds.lua b/dots/.config/hypr/hyprland/keybinds.lua
+--- a/dots/.config/hypr/hyprland/keybinds.lua
++++ b/dots/.config/hypr/hyprland/keybinds.lua
+@@ -9,10 +9,22 @@ local hyprScripts = "$HOME/.config/hypr/hyprland/scripts"
+ local qsIpcCall = "qs -c $qsConfig ipc call"
+ local qsIsAlive = qsIpcCall .. " TEST_ALIVE"
+ 
+-hl.bind("SUPER + SUPER_L", hl.dsp.global("quickshell:searchToggleRelease"), { description = "Shell: Toggle search" })
+-hl.bind("SUPER + SUPER_R", hl.dsp.global("quickshell:searchToggleRelease"))
+-hl.bind("SUPER + SUPER_L", hl.dsp.exec_cmd(qsIsAlive .. " || pkill fuzzel || fuzzel"))
+-hl.bind("SUPER + SUPER_R", hl.dsp.exec_cmd(qsIsAlive .. " || pkill fuzzel || fuzzel"))
++-- Hyprland skips release binds if another key or button is pressed while Super is held, but not on scroll
++local superTapPending = false
++local function startSuperTap() superTapPending = true end
++local function cancelSuperTap() superTapPending = false end
++local function toggleSearchOnSuperTap()
++    if not superTapPending then return end
++    hl.dispatch(hl.dsp.global("quickshell:searchToggleRelease"))
++    hl.exec_cmd(qsIsAlive .. " || pkill fuzzel || fuzzel")
++end
++hl.bind("SUPER + SUPER_L", startSuperTap)
++hl.bind("SUPER + SUPER_R", startSuperTap)
++hl.bind("SUPER + SUPER_L", toggleSearchOnSuperTap, { release = true, description = "Shell: Toggle search" })
++hl.bind("SUPER + SUPER_R", toggleSearchOnSuperTap, { release = true })
++for _, wheel in ipairs({ "mouse_up", "mouse_down", "mouse_left", "mouse_right" }) do
++    hl.bind("SUPER + " .. wheel, cancelSuperTap, { non_consuming = true, transparent = true })
++end
+ 
+ hl.bind("SUPER_L", hl.dsp.global("quickshell:workspaceNumber"), { ignore_mods = true, transparent = true })
+ hl.bind("SUPER_R", hl.dsp.global("quickshell:workspaceNumber"), { ignore_mods = true, transparent = true })
+PATCH
+
 # Version stamp for the first-boot service: when it changes, bazz-hypr-seed
 # re-syncs the upstream configuration in HOME.
 printf '%s\n' "${DOTS_SHA}+${PC_SHA}" > "$SHARE/dots-version"

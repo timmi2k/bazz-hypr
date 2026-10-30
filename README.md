@@ -909,6 +909,23 @@ Since `sdegler/hyprland` at 0.56.2 is above the Luaification threshold of 0.55,
 **illogical-impulse's pre-Luaification track is not needed.** No versions are
 mixed: current dots-hyprland `main` on Hyprland 0.56.2.
 
+### What 0.57 broke, and where it is patched
+
+The pinned dots-hyprland was written for 0.56. Three things went wrong on
+0.57.0, and none of them is fixed upstream yet:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `decoration.shadow.render_power: value 10 is more than the maximum of 4` | 0.57 enforces the 1-4 range instead of clamping | `install-dots.sh` sets it to 4 |
+| Super+1, Super+Enter, … open the search when Super is let go | The Super tap's release now reaches the shell after a combo too | `install-dots.sh` applies end-4/dots-hyprland#3732 |
+| Fullscreen video blacks the screen out, then "wide color gamut is enabled but the display is not in 10-bit mode" | 0.57 offers HDR to fullscreen surfaces, `cm_auto_hdr` switches the 8-bit output | the seed appends `cm_auto_hdr = 0` to `custom/general.lua` |
+
+The two `install-dots.sh` patches only change the image's copy, so a home that
+was seeded before needs the same edit in `~/.config/hypr/hyprland/` by hand
+(or waits for the next dots bump). The `git apply` fails the build once
+upstream touches those lines; then check whether #3732 or an equivalent fix
+landed and drop the patch.
+
 ## Nvidia
 
 Checked against [wiki.hypr.land/Nvidia](https://wiki.hypr.land/Nvidia/)
