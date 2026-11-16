@@ -45,7 +45,7 @@ files/system/usr/lib/udev/rules.d/99-uinput.rules
 files/system/usr/lib/modules-load.d/uinput.conf
 files/system/usr/lib/modprobe.d/zz-bazz-hypr-nvidia.conf
 files/system/usr/share/wayland-sessions/bazz-hypr.desktop
-.github/workflows/build.yml                     daily build + push/workflow_dispatch
+.github/workflows/build.yml                     daily base check, build on new Bazzite + push/workflow_dispatch
 cosign.pub                                      public signing key
 ```
 

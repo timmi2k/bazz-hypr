@@ -1,8 +1,10 @@
 name: bluebuild
 on:
   schedule:
-    # 06:20 UTC - Bazzite baut seine Images kurz vorher, so bekommen wir jeden
-    # Tag die aktuelle Base mit.
+    # 06:20 UTC, shortly after Bazzite builds its images. This run only checks
+    # whether the Bazzite base changed (job "check") and builds if it did. A
+    # daily rebuild on an unchanged base made every machine pull and re-layer a
+    # multi-GB image each day for nothing.
     - cron: "20 06 * * *"
   push:
     paths-ignore:
@@ -18,8 +20,63 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check:
+    name: Check for a new Bazzite base
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      build: ${{ steps.base.outputs.build }}
+    steps:
+      - name: Check out the recipe
+        if: github.event_name == 'schedule'
+        uses: actions/checkout@v5
+
+      - name: Compare the upstream base with the published image
+        id: base
+        env:
+          RECIPE: recipes/recipe.yml
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Pushes, pull requests and manual runs always build. Only the
+          # scheduled run is skipped when there is nothing new upstream.
+          build=true
+
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            base="$(yq -r '.["base-image"]' "$RECIPE"):$(yq -r '.["image-version"]' "$RECIPE")"
+            image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$(yq -r '.name' "$RECIPE"):latest"
+
+            # BlueBuild records the digest of the base it built on as a label
+            # on the image, so the published image itself says what it is
+            # based on. No extra state to keep, and a failed build is retried
+            # on the next run because the label stays old.
+            upstream="$(skopeo inspect --no-tags --format '{{.Digest}}' "docker://$base")" || upstream=
+            ours="$(skopeo inspect --no-tags --creds "$GITHUB_ACTOR:$GH_TOKEN" \
+              --format '{{index .Labels "org.opencontainers.image.base.digest"}}' \
+              "docker://$image")" || ours=
+
+            echo "Upstream $base: ${upstream:-unknown}"
+            echo "Base of $image: ${ours:-unknown}"
+
+            # Anything unknown (registry hiccup, no image yet, label missing)
+            # builds: one build too many is cheaper than missing an update.
+            if [[ -n "$upstream" && "$upstream" == "$ours" ]]; then
+              build=false
+              echo "Bazzite base unchanged (\`$upstream\`), build skipped." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "New Bazzite base \`${upstream:-unknown}\` (image is on \`${ours:-unknown}\`), building." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
   bluebuild:
     name: Build bazz-hypr
+    needs: check
+    # Builds unless the check said no. A check job that broke must not stop
+    # the image from being built.
+    if: ${{ !cancelled() && needs.check.outputs.build != 'false' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

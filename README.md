@@ -418,8 +418,8 @@ directory behaves the same on an update.
 | `~/.local/state/quickshell/.venv` | image | copied when absent |
 
 "A dots bump" means the pinned upstream SHAs in `files/scripts/install-dots.sh`
-changed — not every image build. A daily rebuild that only picks up a new
-Bazzite base does not touch your home at all.
+changed — not every image build. A rebuild that only picks up a new Bazzite
+base does not touch your home at all.
 
 ### Load order matters
 
@@ -511,10 +511,17 @@ from the wallpaper, and `SUPER+CTRL+T` is the front end for it.
 
 ## Updating
 
-**Base and packages** — automatic. `.github/workflows/build.yml` rebuilds daily
-at 06:20 UTC against the current Bazzite base, so upstream Bazzite updates,
-Fedora updates and COPR updates arrive on their own. GitHub delays scheduled
-runs under load, so the actual run time drifts by a few hours; that is normal.
+**Base and packages** — automatic. `.github/workflows/build.yml` checks daily at
+06:20 UTC whether `bazzite-nvidia-open:stable` has changed and rebuilds only if
+it has, so the machine is not made to pull and re-layer a multi-GB image every
+day for nothing. The check compares the upstream digest with the
+`org.opencontainers.image.base.digest` label BlueBuild puts on the published
+image. GitHub delays scheduled runs under load, so the actual run time drifts
+by a few hours; that is normal.
+
+Fedora and COPR updates (Hyprland, Quickshell) ride along with the next Bazzite
+release instead of arriving daily. To get one sooner, run the workflow by hand
+(*Actions → bluebuild → Run workflow*); manual runs and pushes always build.
 
 On the machine:
 
